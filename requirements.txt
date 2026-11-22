@@ -1,0 +1,17 @@
+
+# AI Study Platform - Python Dependencies
+
+# GUI Framework
+customtkinter
+
+# PDF Processing
+pypdf
+
+# Data Visualization
+matplotlib
+
+# AI Integration
+openai
+
+# Environment Configuration
+python-dotenv
