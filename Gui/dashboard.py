@@ -8,6 +8,11 @@ from Gui.sidebar import Sidebar
 from Gui.subjects import SubjectsFrame
 from Gui.activity import ActivityFrame
 from Gui.ai_tutor import AITutorFrame
+from Gui.pdf_assistant import PDFAssistantFrame
+
+
+
+
 
 class DashboardFrame(ctk.CTkFrame):
 
@@ -119,6 +124,18 @@ class DashboardFrame(ctk.CTkFrame):
             )
 
             planner_frame.pack(
+                fill="both",
+                expand=True
+            )
+
+        elif page == "PDF Assistant":
+
+            pdf_frame = PDFAssistantFrame(
+                self.content,
+                self.user
+        )
+
+            pdf_frame.pack(
                 fill="both",
                 expand=True
             )

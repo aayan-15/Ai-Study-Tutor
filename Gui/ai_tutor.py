@@ -18,6 +18,9 @@ class AITutorFrame(ctk.CTkFrame):
         self.gemini = GeminiService()
         self.is_generating = False
 
+        # Store conversation history
+        self.conversation_history = []
+
         self.create_header()
         self.create_chat_area()
         self.create_input_area()
@@ -198,6 +201,7 @@ class AITutorFrame(ctk.CTkFrame):
         self.add_message("user", message)
 
         self.is_generating = True
+
         self.send_button.configure(
             state="disabled",
             text="..."
@@ -205,59 +209,96 @@ class AITutorFrame(ctk.CTkFrame):
 
         self.add_message("ai", "Thinking...")
 
+        # Copy previous conversation history
+        history = self.conversation_history.copy()
+
+        # Run AI generation in background
         thread = threading.Thread(
             target=self.generate_ai_response,
-            args=(message,),
+            args=(message, history),
             daemon=True
         )
 
         thread.start()
 
-    # ---------------- GEMINI RESPONSE ----------------
+    # ---------------- AI RESPONSE ----------------
 
-    def generate_ai_response(self, message):
-
-        response = self.gemini.generate_response(message)
-
-        self.after(
-            100,
-            lambda response=response: self.display_ai_response_safe(response)
-        )
-
-    def generate_ai_response(self, message):
+    def generate_ai_response(self, message, history):
 
         try:
-            response = self.gemini.generate_response(message)
+
+            response = self.gemini.generate_response(
+                message,
+                history
+            )
+
+            if not response:
+                response = "Sorry, no response was generated."
+
+        except Exception as e:
+
+            print(f"Local AI Error: {e}")
+
+            response = (
+                "Sorry, I couldn't connect to the AI service. "
+                "Please make sure Ollama is running and try again."
+            )
+
+        # Safely schedule UI update
+        try:
 
             self.after(
                 100,
-                lambda response=response: self.display_ai_response_safe(response)
+                lambda response=response, message=message:
+                self.display_ai_response_safe(response, message)
             )
 
         except Exception as e:
-            print(f"Gemini API Error: {e}")
 
-        self.after(
-            100,
-            lambda: self.display_ai_response_safe(
-                "Sorry, I couldn't connect to the AI service right now. "
-                "Please try again in a moment."
+            print(f"AI scheduling error: {e}")
+
+    # ---------------- DISPLAY AI RESPONSE ----------------
+
+    def display_ai_response_safe(self, response, user_message):
+
+        try:
+
+            if not self.winfo_exists():
+                return
+
+            if not self.chat_frame.winfo_exists():
+                return
+
+            self.display_ai_response(
+                response,
+                user_message
             )
-        )
 
-        # Remove the temporary Thinking message.
+        except Exception as e:
+
+            print(f"AI response display error: {e}")
+
+    def display_ai_response(self, response, user_message):
+
+        # Remove temporary Thinking message
         children = self.chat_frame.winfo_children()
 
-        if not children:
-            return
+        if children:
+            children[-1].destroy()
 
-        last_message = children[-1]
-        last_message.destroy()
+        # Store conversation in memory
+        self.conversation_history.append({
+            "role": "user",
+            "content": user_message
+        })
 
-        self.add_message(
-            "ai",
-            response if response else "No response was generated."
-        )
+        self.conversation_history.append({
+            "role": "assistant",
+            "content": response
+        })
+
+        # Display AI response
+        self.add_message("ai", response)
 
         self.is_generating = False
 
@@ -265,16 +306,3 @@ class AITutorFrame(ctk.CTkFrame):
             state="normal",
             text="Send"
         )
-
-    def display_ai_response_safe(self, response):
-        try:
-            if not self.winfo_exists():
-                return
-
-            if not self.chat_frame.winfo_exists():
-                return
-
-            self.display_ai_response(response)
-
-        except Exception as e:
-            print(f"AI response display error: {e}")

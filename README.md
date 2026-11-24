@@ -1,4 +1,4 @@
-# AI Study Platform 🤖📚
+# AI Study Platform 
 
 An AI-powered desktop study assistant built with **Python, CustomTkinter, and Google Gemini**.
 

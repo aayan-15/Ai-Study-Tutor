@@ -12,6 +12,7 @@ matplotlib
 
 # AI Integration
 openai
+ollama
 
 # Environment Configuration
 python-dotenv
