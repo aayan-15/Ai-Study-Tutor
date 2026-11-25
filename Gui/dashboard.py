@@ -13,7 +13,6 @@ from Gui.pdf_assistant import PDFAssistantFrame
 
 
 
-
 class DashboardFrame(ctk.CTkFrame):
 
     def __init__(self, parent, user, on_logout):
@@ -138,7 +137,7 @@ class DashboardFrame(ctk.CTkFrame):
             pdf_frame.pack(
                 fill="both",
                 expand=True
-            )
+            )    
 
         else:
             self.show_placeholder(page)
