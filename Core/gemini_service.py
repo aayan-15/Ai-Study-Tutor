@@ -155,3 +155,143 @@ PDF CONTENT:
 
             print(f"PDF Analysis Error: {e}")
             return self._error_message(e)
+
+            # ---------------------------------------------------------
+    # AI QUIZ GENERATION
+    # ---------------------------------------------------------
+
+    def generate_quiz(self, subject, topic, number_of_questions=5):
+
+        try:
+
+            prompt = f"""
+You are an AI quiz generator for a student study platform.
+
+Generate exactly {number_of_questions} multiple-choice questions.
+
+SUBJECT:
+{subject}
+
+TOPIC:
+{topic}
+
+REQUIREMENTS:
+- Questions must be directly related to the topic.
+- Questions should test actual understanding, not random trivia.
+- Use exactly 4 options for every question.
+- Only ONE option must be correct.
+- Options must be labeled A, B, C, and D.
+- Include the correct answer.
+- Include a short explanation of the correct answer.
+- Avoid duplicate questions.
+- Use clear student-friendly language.
+- Match the difficulty to a university student.
+- Return ONLY valid JSON.
+- Do not include Markdown.
+- Do not include ```json or ```.
+
+RETURN THIS EXACT JSON STRUCTURE:
+
+{{
+    "subject": "{subject}",
+    "topic": "{topic}",
+    "questions": [
+        {{
+            "question": "Question text",
+            "options": {{
+                "A": "Option A",
+                "B": "Option B",
+                "C": "Option C",
+                "D": "Option D"
+            }},
+            "answer": "A",
+            "explanation": "Short explanation"
+        }}
+    ]
+}}
+"""
+
+            answer = self._chat(
+                [{"role": "user", "content": prompt}],
+                max_tokens=2000,
+            )
+
+            if not answer:
+                return {
+                    "success": False,
+                    "message": "AI returned an empty response."
+                }
+
+            # Remove accidental Markdown code fences
+            answer = answer.strip()
+
+            if answer.startswith("```"):
+                answer = answer.replace("```json", "")
+                answer = answer.replace("```", "")
+                answer = answer.strip()
+
+            quiz = json.loads(answer)
+
+            # Basic validation
+            if "questions" not in quiz:
+                return {
+                    "success": False,
+                    "message": "Invalid quiz format returned by AI."
+                }
+
+            if len(quiz["questions"]) != number_of_questions:
+                return {
+                    "success": False,
+                    "message": "AI did not generate the requested number of questions."
+                }
+
+            for question in quiz["questions"]:
+
+                required_fields = [
+                    "question",
+                    "options",
+                    "answer",
+                    "explanation"
+                ]
+
+                for field in required_fields:
+                    if field not in question:
+                        return {
+                            "success": False,
+                            "message": f"Quiz question is missing: {field}"
+                        }
+
+                if set(question["options"].keys()) != {"A", "B", "C", "D"}:
+                    return {
+                        "success": False,
+                        "message": "Each question must contain exactly four options."
+                    }
+
+                if question["answer"] not in ["A", "B", "C", "D"]:
+                    return {
+                        "success": False,
+                        "message": "Invalid correct answer returned by AI."
+                    }
+
+            return {
+                "success": True,
+                "quiz": quiz
+            }
+
+        except json.JSONDecodeError as e:
+
+            print(f"Quiz JSON Error: {e}")
+
+            return {
+                "success": False,
+                "message": "The AI returned an invalid quiz format."
+            }
+
+        except Exception as e:
+
+            print(f"Quiz Generation Error: {e}")
+
+            return {
+                "success": False,
+                "message": self._error_message(e)
+            }

@@ -9,8 +9,8 @@ from Gui.subjects import SubjectsFrame
 from Gui.activity import ActivityFrame
 from Gui.ai_tutor import AITutorFrame
 from Gui.pdf_assistant import PDFAssistantFrame
-
-
+from Gui.quiz import QuizFrame
+from Core.quiz_history import QuizHistory
 
 
 class DashboardFrame(ctk.CTkFrame):
@@ -24,7 +24,7 @@ class DashboardFrame(ctk.CTkFrame):
         self.subject_manager = SubjectManager()
         self.activity_manager = ActivityManager()
         self.task_manager = TaskManager()
-
+        self.quiz_history = QuizHistory()
         self.configure(fg_color="#F4F6FA")
 
         # Sidebar
@@ -139,6 +139,12 @@ class DashboardFrame(ctk.CTkFrame):
                 expand=True
             )    
 
+        elif page == "Quizzes":
+            quiz_frame = QuizFrame(
+            self.content,
+            self.user
+        )
+            quiz_frame.pack(fill="both", expand=True)
         else:
             self.show_placeholder(page)
 
@@ -154,6 +160,9 @@ class DashboardFrame(ctk.CTkFrame):
         )
 
         total_subjects = len(subjects)
+
+        quiz_attempts = self.quiz_history.get_history(user_email)
+        total_quizzes = len(quiz_attempts)
 
         # Fetch overall progress
         overall_progress = self.subject_manager.get_overall_progress(
@@ -212,7 +221,7 @@ class DashboardFrame(ctk.CTkFrame):
                 task_statistics["pending_tasks"],
                 f'{task_statistics["completed_tasks"]} completed'
             ),
-            ("Quizzes Taken", 0, "Quizzes completed")
+            ("Quizzes Taken", total_quizzes, "Quizzes completed")
         ]
 
         for title, value, description in cards:
