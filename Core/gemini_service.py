@@ -1,16 +1,64 @@
 import json
+import os
 import random
 
-import ollama
+from dotenv import load_dotenv
+from openai import OpenAI, AuthenticationError, RateLimitError, APIConnectionError
+
+load_dotenv()
 
 
 class GeminiService:
-    """Local AI service (Ollama). Class name kept so existing imports still work."""
+    """AI service using the Groq API. Class name kept so existing imports still work."""
 
     def __init__(self):
-        # 0.5b is very weak at structured output. If quizzes still fail often,
-        # try "qwen2.5:3b", "llama3.2:3b" or "qwen2.5:7b".
-        self.model = "qwen2.5:0.5b"
+        api_key = os.getenv("GROK_API_KEY")
+
+        if not api_key:
+            raise RuntimeError("GROK_API_KEY not found. Add it to your .env file.")
+
+        self.client = OpenAI(
+            api_key=api_key,
+            base_url="https://api.groq.com/openai/v1",
+        )
+
+        # Smartest option on your Groq account.
+        # For faster replies, use "openai/gpt-oss-20b".
+        self.model = "openai/gpt-oss-120b"
+
+    # ---------------------------------------------------------
+    # SHARED HELPER
+    # ---------------------------------------------------------
+
+    def _chat(self, messages, max_tokens=1000, temperature=0.2):
+        """Send messages to Groq and return the reply text."""
+
+        response = self.client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            temperature=temperature,
+            top_p=0.8,
+            # gpt-oss "thinks" before answering, and that thinking uses tokens.
+            # Low effort keeps replies fast and leaves room for the answer.
+            reasoning_effort="low",
+            max_completion_tokens=max_tokens + 500,
+        )
+
+        return (response.choices[0].message.content or "").strip()
+
+    def _error_message(self, e):
+        """Turn API errors into friendly messages for the student."""
+
+        if isinstance(e, AuthenticationError):
+            return "The AI service rejected the API key. Please check GROK_API_KEY in your .env file."
+
+        if isinstance(e, RateLimitError):
+            return "Too many requests right now. Please wait a minute and try again."
+
+        if isinstance(e, APIConnectionError):
+            return "Couldn't reach the AI service. Please check your internet connection."
+
+        return "Sorry, the AI service is currently unavailable. Please try again."
 
     # ---------------------------------------------------------
     # AI TUTOR RESPONSE
@@ -42,36 +90,20 @@ ANSWER LENGTH:
 2. Use approximately 100-180 words for normal explanations.
 3. Do not stop in the middle of a sentence.
 4. Finish with a complete sentence.
+
+FORMATTING:
+The chat window shows plain text only. Do not use Markdown symbols
+like **, ##, or tables. Use simple dashes for bullet points.
 """
 
-            messages = [
-                {
-                    "role": "system",
-                    "content": system_prompt
-                }
-            ]
+            messages = [{"role": "system", "content": system_prompt}]
 
             if conversation_history:
                 messages.extend(conversation_history[-6:])
 
-            messages.append({
-                "role": "user",
-                "content": message
-            })
+            messages.append({"role": "user", "content": message})
 
-            response = ollama.chat(
-                model=self.model,
-                messages=messages,
-                options={
-                    "temperature": 0.2,
-                    "num_predict": 1000,
-                    "num_ctx": 4096,
-                    "top_p": 0.8
-                },
-                keep_alive="10m"
-            )
-
-            answer = response["message"]["content"].strip()
+            answer = self._chat(messages, max_tokens=1000)
 
             if not answer:
                 return "Sorry, I couldn't generate an answer. Please try again."
@@ -80,12 +112,8 @@ ANSWER LENGTH:
 
         except Exception as e:
 
-            print(f"Local AI Error: {e}")
-
-            return (
-                "Sorry, the AI service is currently unavailable. "
-                "Please check whether Ollama is running."
-            )
+            print(f"Groq AI Error: {e}")
+            return self._error_message(e)
 
     # ---------------------------------------------------------
     # PDF ANALYSIS
@@ -105,7 +133,7 @@ INSTRUCTIONS:
 - Use the PDF as your primary source.
 - Explain concepts in simple student-friendly language.
 - Stay focused on the requested topic.
-- Use headings and bullet points when useful.
+- Use simple dashes for bullet points (plain text, no Markdown symbols).
 - Give a concise but complete answer.
 - If the requested information is not in the PDF, clearly say so.
 
@@ -113,26 +141,10 @@ PDF CONTENT:
 {pdf_text[:6000]}
 """
 
-            response = ollama.chat(
-                model=self.model,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ],
-                options={
-                    "temperature": 0.2,
-                    "num_predict": max_tokens,
-                    # 6000 characters is roughly 1500 tokens, plus the reply.
-                    # 2048 would truncate the prompt.
-                    "num_ctx": 4096,
-                    "top_p": 0.8
-                },
-                keep_alive="10m"
+            answer = self._chat(
+                [{"role": "user", "content": prompt}],
+                max_tokens=max_tokens,
             )
-
-            answer = response["message"]["content"].strip()
 
             if not answer:
                 return "Sorry, I couldn't analyze this PDF. Please try again."
@@ -142,7 +154,4 @@ PDF CONTENT:
         except Exception as e:
 
             print(f"PDF Analysis Error: {e}")
-
-            return "Sorry, I couldn't analyze this PDF. Please try again."
-
-    
+            return self._error_message(e)

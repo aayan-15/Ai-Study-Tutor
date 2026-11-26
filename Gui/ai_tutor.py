@@ -1,9 +1,6 @@
-
 import customtkinter as ctk
 import threading
-
 from Core.gemini_service import GeminiService
-
 
 class AITutorFrame(ctk.CTkFrame):
 
@@ -241,7 +238,7 @@ class AITutorFrame(ctk.CTkFrame):
 
             response = (
                 "Sorry, I couldn't connect to the AI service. "
-                "Please make sure Ollama is running and try again."
+                "Please make sure Grok is running and try again."
             )
 
         # Safely schedule UI update

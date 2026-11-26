@@ -426,7 +426,7 @@ class PDFAssistantFrame(ctk.CTkFrame):
         result = self.ai.analyze_pdf(
     self.pdf_text,
     task,
-    max_tokens=600
+    max_tokens=1500
 )
 
         self.after(
