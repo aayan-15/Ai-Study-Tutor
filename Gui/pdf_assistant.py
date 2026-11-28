@@ -1,15 +1,32 @@
-import customtkinter as ctk
-from tkinter import filedialog
+import os
 import threading
+from tkinter import filedialog
+
+import customtkinter as ctk
 
 from Core.pdf_processor import PDFProcessor
 from Core.gemini_service import GeminiService
+from Gui import theme as t
+
+
+# (button label, result heading, prompt sent with the PDF)
+ACTIONS = [
+    ("Summary", "Summary",
+     "Summarize this PDF into clear, easy-to-understand study notes."),
+    ("Key points", "Key points",
+     "Extract the most important points from this PDF."),
+    ("10 MCQs", "Practice questions",
+     "Generate 10 multiple-choice questions with four options each and "
+     "provide the correct answers."),
+    ("Explain concepts", "Concepts explained",
+     "Explain the main concepts covered in this PDF in simple language."),
+]
 
 
 class PDFAssistantFrame(ctk.CTkFrame):
 
     def __init__(self, parent, user):
-        super().__init__(parent, fg_color="#F4F6FA")
+        super().__init__(parent, corner_radius=0, fg_color=t.BG)
 
         self.user = user
         self.pdf_processor = PDFProcessor()
@@ -26,469 +43,233 @@ class PDFAssistantFrame(ctk.CTkFrame):
         self.create_upload_section()
         self.create_analysis_section()
         self.create_result_section()
+        self.update_controls()
 
-    # ---------------------------------------------------------
-    # HEADER
-    # ---------------------------------------------------------
+    # Header
 
     def create_header(self):
+        header = ctk.CTkFrame(self, fg_color="transparent")
+        header.pack(fill="x", padx=t.PAGE_X, pady=(40, t.GAP))
 
-        ctk.CTkLabel(
-            self,
-            text="PDF Study Assistant",
-            font=ctk.CTkFont(size=28, weight="bold"),
-            text_color="#202938"
-        ).pack(
-            anchor="w",
-            padx=35,
-            pady=(30, 5)
-        )
+        t.label(header, "PDF assistant", "title").pack(anchor="w")
+        t.label(
+            header,
+            "Summaries, key points, practice questions and answers from "
+            "your own study material",
+            "small", t.TEXT_2
+        ).pack(anchor="w", pady=(4, 0))
 
-        ctk.CTkLabel(
-            self,
-            text="Upload your study material and let AI help you understand it.",
-            font=ctk.CTkFont(size=14),
-            text_color="#778195"
-        ).pack(
-            anchor="w",
-            padx=35,
-            pady=(0, 25)
-        )
-
-    # ---------------------------------------------------------
-    # PDF UPLOAD SECTION
-    # ---------------------------------------------------------
+    # Source PDF
 
     def create_upload_section(self):
+        self.upload_card = t.card(self)
+        self.upload_card.pack(fill="x", padx=t.PAGE_X)
 
-        self.upload_card = ctk.CTkFrame(
-            self,
-            fg_color="#FFFFFF",
-            corner_radius=12,
-            border_width=1,
-            border_color="#E5E9F0"
+        row = ctk.CTkFrame(self.upload_card, fg_color="transparent")
+        row.pack(fill="x", padx=t.CARD_PAD, pady=20)
+        row.grid_columnconfigure(0, weight=1)
+
+        self.file_label = t.label(row, "No PDF yet", "body")
+        self.file_label.grid(row=0, column=0, sticky="w")
+
+        self.file_meta = t.label(
+            row, "Choose lecture notes or a chapter to get started",
+            "small", t.MUTED
         )
+        self.file_meta.grid(row=1, column=0, sticky="w", pady=(4, 0))
 
-        self.upload_card.pack(
-            fill="x",
-            padx=35,
-            pady=10
-        )
+        self.upload_button = t.primary_button(
+            row, "Choose PDF", self.upload_pdf, width=128)
+        self.upload_button.grid(row=0, column=1, rowspan=2, sticky="e",
+                                padx=(16, 0))
 
-        ctk.CTkLabel(
-            self.upload_card,
-            text="Upload Study Material",
-            font=ctk.CTkFont(size=18, weight="bold"),
-            text_color="#202938"
-        ).pack(
-            anchor="w",
-            padx=20,
-            pady=(20, 10)
-        )
-
-        self.upload_button = ctk.CTkButton(
-            self.upload_card,
-            text="Choose PDF File",
-            height=40,
-            fg_color="#3157D5",
-            hover_color="#2546B5",
-            command=self.upload_pdf
-        )
-
-        self.upload_button.pack(
-            anchor="w",
-            padx=20,
-            pady=5
-        )
-
-        self.file_label = ctk.CTkLabel(
-            self.upload_card,
-            text="No PDF selected",
-            font=ctk.CTkFont(size=12),
-            text_color="#8993A5"
-        )
-
-        self.file_label.pack(
-            anchor="w",
-            padx=20,
-            pady=(5, 20)
-        )
-
-    # ---------------------------------------------------------
-    # ANALYSIS SECTION
-    # ---------------------------------------------------------
+    # Actions and questions
 
     def create_analysis_section(self):
+        self.analysis_card = t.card(self)
+        self.analysis_card.pack(fill="x", padx=t.PAGE_X, pady=(t.GAP, 0))
 
-        self.analysis_card = ctk.CTkFrame(
-            self,
-            fg_color="#FFFFFF",
-            corner_radius=12,
-            border_width=1,
-            border_color="#E5E9F0"
-        )
+        t.label(self.analysis_card, "Study this PDF", "heading").pack(
+            anchor="w", padx=t.CARD_PAD, pady=(t.CARD_PAD, 12))
 
-        self.analysis_card.pack(
-            fill="x",
-            padx=35,
-            pady=10
-        )
-
-        ctk.CTkLabel(
-            self.analysis_card,
-            text="AI Analysis",
-            font=ctk.CTkFont(size=18, weight="bold"),
-            text_color="#202938"
-        ).pack(
-            anchor="w",
-            padx=20,
-            pady=(20, 10)
-        )
-
-        # -----------------------------------------------------
-        # PDF ANALYSIS BUTTONS
-        # -----------------------------------------------------
+        grid = ctk.CTkFrame(self.analysis_card, fg_color="transparent")
+        grid.pack(fill="x", padx=t.CARD_PAD)
 
         self.analysis_buttons = []
+        for column, (text, title, task) in enumerate(ACTIONS):
+            grid.grid_columnconfigure(column * 2, weight=1, uniform="actions")
+            if column:
+                grid.grid_columnconfigure(column * 2 - 1, minsize=12)
 
-        actions = [
-            (
-                "Generate Summary",
-                "Summarize this PDF into clear, easy-to-understand study notes."
-            ),
-            (
-                "Important Points",
-                "Extract the most important points from this PDF."
-            ),
-            (
-                "Generate MCQs",
-                "Generate 10 multiple-choice questions with four options each and provide the correct answers."
-            ),
-            (
-                "Explain Concepts",
-                "Explain the main concepts covered in this PDF in simple language."
+            button = t.secondary_button(
+                grid, text,
+                lambda task=task, title=title: self.start_analysis(task,
+                                                                   title)
             )
-        ]
-
-        for title, task in actions:
-
-            button = ctk.CTkButton(
-                self.analysis_card,
-                text=title,
-                height=38,
-                fg_color="#3157D5",
-                hover_color="#2546B5",
-                command=lambda t=task: self.start_analysis(t)
-            )
-
-            button.pack(
-                fill="x",
-                padx=20,
-                pady=5
-            )
-
+            button.grid(row=0, column=column * 2, sticky="ew")
             self.analysis_buttons.append(button)
 
-        # -----------------------------------------------------
-        # PDF QUESTION ANSWERING
-        # -----------------------------------------------------
+        t.divider(self.analysis_card, padx=t.CARD_PAD, pady=t.GAP)
 
-        ctk.CTkLabel(
-            self.analysis_card,
-            text="Ask a Question About Your PDF",
-            font=ctk.CTkFont(size=15, weight="bold"),
-            text_color="#202938"
-        ).pack(
-            anchor="w",
-            padx=20,
-            pady=(15, 8)
-        )
+        t.label(self.analysis_card, "Ask about this PDF", "small",
+                t.TEXT_2).pack(anchor="w", padx=t.CARD_PAD, pady=(0, 8))
 
-        self.question_entry = ctk.CTkEntry(
-            self.analysis_card,
-            height=42,
-            placeholder_text="Ask something about your study material..."
-        )
+        ask_row = ctk.CTkFrame(self.analysis_card, fg_color="transparent")
+        ask_row.pack(fill="x", padx=t.CARD_PAD, pady=(0, t.CARD_PAD))
+        ask_row.grid_columnconfigure(0, weight=1)
 
-        self.question_entry.pack(
-            fill="x",
-            padx=20,
-            pady=5
-        )
+        self.question_entry = t.entry(
+            ask_row, "Like: what is the difference between a process and "
+                     "a thread")
+        self.question_entry.grid(row=0, column=0, sticky="ew", padx=(0, 12))
+        self.question_entry.bind("<Return>", lambda event: self.ask_question())
 
-        self.ask_button = ctk.CTkButton(
-            self.analysis_card,
-            text="Ask AI",
-            height=38,
-            fg_color="#16865C",
-            hover_color="#116B49",
-            command=self.ask_question
-        )
+        self.ask_button = t.primary_button(
+            ask_row, "Ask", self.ask_question, width=88)
+        self.ask_button.grid(row=0, column=1)
 
-        self.ask_button.pack(
-            fill="x",
-            padx=20,
-            pady=(5, 15)
-        )
-
-        ctk.CTkLabel(
-            self.analysis_card,
-            text="Select an action to analyze your uploaded PDF.",
-            font=ctk.CTkFont(size=12),
-            text_color="#8993A5"
-        ).pack(
-            anchor="w",
-            padx=20,
-            pady=(8, 20)
-        )
-
-    # ---------------------------------------------------------
-    # RESULT SECTION
-    # ---------------------------------------------------------
+    # Result
 
     def create_result_section(self):
+        self.result_card = t.card(self)
+        self.result_card.pack(fill="x", padx=t.PAGE_X, pady=(t.GAP, 40))
 
-        self.result_card = ctk.CTkFrame(
-            self,
-            fg_color="#FFFFFF",
-            corner_radius=12,
-            border_width=1,
-            border_color="#E5E9F0"
-        )
+        header = ctk.CTkFrame(self.result_card, fg_color="transparent")
+        header.pack(fill="x", padx=t.CARD_PAD, pady=(t.CARD_PAD, 8))
 
-        self.result_card.pack(
-            fill="both",
-            expand=True,
-            padx=35,
-            pady=(10, 30)
-        )
+        self.result_title = t.label(header, "Results", "heading")
+        self.result_title.pack(side="left")
 
-        ctk.CTkLabel(
-            self.result_card,
-            text="AI Results",
-            font=ctk.CTkFont(size=18, weight="bold"),
-            text_color="#202938"
-        ).pack(
-            anchor="w",
-            padx=20,
-            pady=(20, 10)
-        )
+        self.result_status = t.label(header, "", "meta", t.MUTED)
+        self.result_status.pack(side="right")
 
+        # The box grows with its text, so the page scrolls instead of
+        # a second scrollbar inside the card.
         self.result_box = ctk.CTkTextbox(
             self.result_card,
-            height=300,
-            corner_radius=8,
-            fg_color="#F4F6FA",
-            text_color="#202938",
-            font=ctk.CTkFont(size=13),
-            wrap="word"
+            height=120,
+            corner_radius=0,
+            border_width=0,
+            fg_color=t.CARD,
+            text_color=t.TEXT,
+            font=t.fonts()["body"],
+            wrap="word",
+            activate_scrollbars=False
+        )
+        self.result_box.pack(fill="x", padx=t.CARD_PAD - 4,
+                             pady=(0, t.CARD_PAD - 4))
+        self.result_box._textbox.configure(spacing1=2, spacing3=4)
+        self.result_box.bind("<Configure>",
+                             lambda event: self.fit_result_height())
+
+        self.show_result(
+            "Choose a PDF, then pick an action or ask a question. "
+            "The answer shows up here.",
+            muted=True
         )
 
-        self.result_box.pack(
-            fill="both",
-            expand=True,
-            padx=20,
-            pady=(0, 20)
-        )
-
-        self.result_box.insert(
-            "1.0",
-            "Your AI-generated PDF analysis will appear here."
-        )
-
-        self.result_box.configure(state="disabled")
-
-    # ---------------------------------------------------------
-    # UPLOAD PDF
-    # ---------------------------------------------------------
+    # Upload
 
     def upload_pdf(self):
-
         file_path = filedialog.askopenfilename(
-            title="Select Study PDF",
-            filetypes=[("PDF Files", "*.pdf")]
+            title="Select study PDF",
+            filetypes=[("PDF files", "*.pdf")]
         )
-
         if not file_path:
             return
 
-        self.file_label.configure(
-            text="Extracting PDF text..."
-        )
-
-        self.upload_button.configure(
-            state="disabled"
-        )
+        self.file_label.configure(text=os.path.basename(file_path))
+        self.file_meta.configure(text="Reading the text")
+        self.upload_button.configure(state="disabled")
 
         threading.Thread(
-            target=self.extract_pdf,
-            args=(file_path,),
-            daemon=True
+            target=self.extract_pdf, args=(file_path,), daemon=True
         ).start()
 
-    # ---------------------------------------------------------
-    # EXTRACT PDF
-    # ---------------------------------------------------------
-
     def extract_pdf(self, file_path):
-
         text = self.pdf_processor.extract_text(file_path)
-
-        self.after(
-            0,
-            lambda: self.finish_extraction(
-                file_path,
-                text
-            )
-        )
+        self.after(0, lambda: self.finish_extraction(file_path, text))
 
     def finish_extraction(self, file_path, text):
-
         if not self.winfo_exists():
             return
 
-        self.upload_button.configure(
-            state="normal"
-        )
+        self.upload_button.configure(state="normal")
+
+        # Clear conversation whenever the PDF changes
+        self.pdf_conversation_history = []
 
         if not text:
-
             self.pdf_text = ""
             self.pdf_path = ""
-            self.pdf_conversation_history = []
-
-            self.file_label.configure(
-                text="Could not extract text from this PDF."
+            self.file_label.configure(text="No PDF yet")
+            self.file_meta.configure(
+                text=f"Couldn't read any text from "
+                     f"{os.path.basename(file_path)}. Scanned PDFs need "
+                     f"to be converted with OCR first",
+                text_color=t.NEGATIVE
             )
-
+            self.update_controls()
             return
 
         self.pdf_text = text
         self.pdf_path = file_path
 
-        # Clear conversation when a new PDF is uploaded
-        self.pdf_conversation_history = []
-
-        filename = file_path.replace("\\", "/").split("/")[-1]
-
-        self.file_label.configure(
-            text=f"Selected: {filename}"
-        )
+        words = len(text.split())
+        self.file_label.configure(text=os.path.basename(file_path))
+        self.file_meta.configure(text=f"{words:,} words", text_color=t.MUTED)
 
         self.show_result(
-            "PDF uploaded successfully!\n\n"
-            "Text extracted successfully. You can now choose "
-            "an AI analysis action or ask a question."
+            "Ready. Pick an action or ask a question about this PDF.",
+            title="Results", muted=True
         )
+        self.update_controls()
 
-    # ---------------------------------------------------------
-    # NORMAL PDF ANALYSIS
-    # ---------------------------------------------------------
+    # Analysis
 
-    def start_analysis(self, task):
-
+    def start_analysis(self, task, title="Results"):
         if not self.pdf_text:
-
-            self.show_result(
-                "Please upload a PDF before starting AI analysis."
-            )
-
+            self.show_result("Choose a PDF first", muted=True)
             return
-
         if self.is_generating:
             return
 
-        self.is_generating = True
-
-        # Disable analysis buttons
-        for button in self.analysis_buttons:
-            button.configure(
-                state="disabled"
-            )
-
-        # Disable Ask AI too
-        self.ask_button.configure(
-            state="disabled"
-        )
-
-        self.show_result(
-            "AI is analyzing your PDF. Please wait..."
-        )
-
+        self.set_busy(True, title)
         threading.Thread(
-            target=self.generate_analysis,
-            args=(task,),
-            daemon=True
+            target=self.generate_analysis, args=(task, title), daemon=True
         ).start()
 
-    def generate_analysis(self, task):
+    def generate_analysis(self, task, title="Results"):
+        try:
+            result = self.ai.analyze_pdf(self.pdf_text, task, max_tokens=1500)
+        except Exception as error:
+            print(f"PDF Analysis Error: {error}")
+            result = "Couldn't generate this. Try again in a moment."
 
-        result = self.ai.analyze_pdf(
-    self.pdf_text,
-    task,
-    max_tokens=1500
-)
+        self.after(0, lambda: self.finish_analysis(result, title))
 
-        self.after(
-            0,
-            lambda: self.finish_analysis(result)
-        )
-
-    def finish_analysis(self, result):
-
+    def finish_analysis(self, result, title="Results"):
         if not self.winfo_exists():
             return
 
-        self.show_result(result)
+        self.set_busy(False)
+        self.show_result(result, title=title)
 
-        self.is_generating = False
-
-        # Re-enable analysis buttons
-        for button in self.analysis_buttons:
-            button.configure(
-                state="normal"
-            )
-
-        # Re-enable Ask AI
-        self.ask_button.configure(
-            state="normal"
-        )
-
-    # ---------------------------------------------------------
-    # ASK QUESTION
-    # ---------------------------------------------------------
+    # Questions
 
     def ask_question(self):
-
         question = self.question_entry.get().strip()
 
-        # Check PDF
         if not self.pdf_text:
-
-            self.show_result(
-                "Please upload a PDF before asking a question."
-            )
-
+            self.show_result("Choose a PDF first", muted=True)
             return
-
-        # Check question
         if not question:
-
-            self.show_result(
-                "Please enter a question first."
-            )
-
+            self.question_entry.focus_set()
             return
-
-        # Prevent multiple requests
         if self.is_generating:
             return
 
-        # Clear input
-        self.question_entry.delete(
-            0,
-            "end"
-        )
+        self.question_entry.delete(0, "end")
 
         # Build prompt using conversation history
         task = f"""
@@ -514,131 +295,95 @@ IMPORTANT INSTRUCTIONS:
 8. Give a complete answer and do not stop in the middle of a sentence.
 """
 
-        self.start_pdf_question(
-            task,
-            question
-        )
-
-    # ---------------------------------------------------------
-    # START PDF QUESTION
-    # ---------------------------------------------------------
+        self.start_pdf_question(task, question)
 
     def start_pdf_question(self, task, question):
-
         if self.is_generating:
             return
 
-        self.is_generating = True
-
-        # Disable Ask AI
-        self.ask_button.configure(
-            state="disabled"
-        )
-
-        # Also disable analysis buttons
-        for button in self.analysis_buttons:
-            button.configure(
-                state="disabled"
-            )
-
-        self.show_result(
-            "AI is thinking..."
-        )
-
+        self.set_busy(True, question)
         threading.Thread(
-            target=self.generate_pdf_question,
-            args=(task, question),
+            target=self.generate_pdf_question, args=(task, question),
             daemon=True
         ).start()
 
-    # ---------------------------------------------------------
-    # GENERATE PDF QUESTION ANSWER
-    # ---------------------------------------------------------
-
     def generate_pdf_question(self, task, question):
-
         try:
+            result = self.ai.analyze_pdf(self.pdf_text, task, max_tokens=350)
+        except Exception as error:
+            print(f"PDF Question Error: {error}")
+            result = "Couldn't answer that. Try again in a moment."
 
-            result = self.ai.analyze_pdf(
-                self.pdf_text,
-    task,
-    max_tokens=350
-)
-
-        except Exception as e:
-
-            print(f"PDF Question Error: {e}")
-
-            result = (
-                "Sorry, I couldn't generate an answer. "
-                "Please try again."
-            )
-
-        self.after(
-            0,
-            lambda: self.finish_pdf_question(
-                question,
-                result
-            )
-        )
-
-    # ---------------------------------------------------------
-    # FINISH PDF QUESTION
-    # ---------------------------------------------------------
+        self.after(0, lambda: self.finish_pdf_question(question, result))
 
     def finish_pdf_question(self, question, result):
-
         if not self.winfo_exists():
             return
 
-        self.show_result(result)
-
-        # Save conversation
         self.pdf_conversation_history.append(
-            {
-                "question": question,
-                "answer": result
-            }
+            {"question": question, "answer": result}
         )
-
         # Keep only the latest 6 exchanges
-        self.pdf_conversation_history = (
-            self.pdf_conversation_history[-6:]
-        )
+        self.pdf_conversation_history = self.pdf_conversation_history[-6:]
 
-        self.is_generating = False
+        self.set_busy(False)
+        self.show_result(result, title=question)
 
-        # Re-enable Ask AI
-        self.ask_button.configure(
-            state="normal"
-        )
+    # State and display
 
-        # Re-enable analysis buttons
+    def update_controls(self):
+        """Actions only work once a PDF is loaded and nothing is running."""
+        ready = bool(self.pdf_text) and not self.is_generating
+        state = "normal" if ready else "disabled"
         for button in self.analysis_buttons:
-            button.configure(
-                state="normal"
-            )
+            button.configure(state=state)
+        t.set_primary_enabled(self.ask_button, ready)
 
-    # ---------------------------------------------------------
-    # SHOW RESULT
-    # ---------------------------------------------------------
-
-    def show_result(self, text):
-
-        self.result_box.configure(
-            state="normal"
+        self.upload_button.configure(
+            text="Replace PDF" if self.pdf_text else "Choose PDF",
+            state="disabled" if self.is_generating else "normal"
         )
+        style = (dict(fg_color=t.CARD, hover_color=t.RAISED,
+                      text_color=t.TEXT, border_width=1,
+                      border_color=t.FIELD_BORDER)
+                 if self.pdf_text else
+                 dict(fg_color=t.ACCENT, hover_color=t.ACCENT_HOVER,
+                      text_color="#FFFFFF", border_width=0))
+        self.upload_button.configure(**style)
 
-        self.result_box.delete(
-            "1.0",
-            "end"
-        )
+    def set_busy(self, busy, title=None):
+        self.is_generating = busy
+        if busy:
+            self.result_title.configure(text=self._short(title))
+            self.result_status.configure(text="Working on it")
+            self.show_result("", title=title)
+        else:
+            self.result_status.configure(text="")
+        self.update_controls()
 
-        self.result_box.insert(
-            "1.0",
-            text
-        )
+    def show_result(self, text, title=None, muted=False):
+        if title is not None:
+            self.result_title.configure(text=self._short(title))
 
-        self.result_box.configure(
-            state="disabled"
-        )
+        self.result_box.configure(state="normal",
+                                  text_color=t.MUTED if muted else t.TEXT)
+        self.result_box.delete("1.0", "end")
+        self.result_box.insert("1.0", (text or "").strip())
+        self.result_box.configure(state="disabled")
+        self.fit_result_height()
+
+    def fit_result_height(self):
+        """Grow the result box to fit its text."""
+        box = self.result_box._textbox
+        box.update_idletasks()
+        lines = box.count("1.0", "end", "displaylines")
+        lines = lines[0] if lines else 1
+        line_px = t.fonts()["body"].metrics("linespace") + 6
+        height = max(40, lines * line_px + 12)
+        if abs(self.result_box.cget("height") - height) > 2:
+            self.result_box.configure(height=height)
+
+    @staticmethod
+    def _short(text, limit=72):
+        text = " ".join((text or "").split())
+        return text if len(text) <= limit else text[:limit - 1] + "…"

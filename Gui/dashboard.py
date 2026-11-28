@@ -1,8 +1,13 @@
-from Core.task_manager import TaskManager
+from datetime import datetime, timedelta
+import tkinter.font as tkfont
+
 import customtkinter as ctk
-from Gui.planner import PlannerFrame
+
+from Core.task_manager import TaskManager
 from Core.subject_manager import SubjectManager
 from Core.activity import ActivityManager
+from Core.quiz_history import QuizHistory
+from Gui.planner import PlannerFrame
 from Gui.progress import ProgressFrame
 from Gui.sidebar import Sidebar
 from Gui.subjects import SubjectsFrame
@@ -10,13 +15,96 @@ from Gui.activity import ActivityFrame
 from Gui.ai_tutor import AITutorFrame
 from Gui.pdf_assistant import PDFAssistantFrame
 from Gui.quiz import QuizFrame
-from Core.quiz_history import QuizHistory
+
+
+COLORS = {
+    "bg": "#F5F7FA",
+    "surface": "#FFFFFF",
+    "border": "#DDE2EA",
+    "text": "#1B2333",
+    "muted": "#566074",          # 6:1 on white
+    "accent": "#2F55D4",         # 6.5:1 on white
+    "accent_hover": "#2546B5",
+    "hover": "#EEF1F6",
+    "row": "#F8F9FC",
+    "danger": "#B42318",
+    "danger_bg": "#FEF3F2",
+    "danger_border": "#FDA29B",
+    "track": "#E3E8F0",
+}
+
+SPACE = {1: 4, 2: 8, 3: 12, 4: 16, 6: 24, 8: 32}
+
+RADIUS = 10
+
+FONT = {
+    "caption": 12,
+    "body": 14,
+    "title": 16,
+    "heading": 20,
+    "display": 28,
+}
+
+CONTROL_HEIGHT = 36
+RECENT_ACTIVITY_LIMIT = 7
+
+
+# Theme
+# One neutral ramp, three text roles, one accent (fountain pen ink).
+# Move this block to Gui/theme.py and import it in the sidebar and other
+# pages so the whole app shares one palette.
+BG = "#FAFAFA"           # page
+CARD = "#FFFFFF"         # raised surface
+RAISED = "#F4F4F5"       # hover, active row
+HAIRLINE = "#EBEBEB"     # borders and dividers
+TRACK = "#E7E7E9"        # empty part of the syllabus bar
+
+TEXT = "#171717"         # primary
+TEXT_2 = "#525252"       # secondary
+MUTED = "#737373"        # meta, captions
+
+ACCENT = "#0F766E"       # ink teal, 5.4:1 with white text
+ACCENT_HOVER = "#115E59"
+
+PAGE_X = 32              # page side padding
+GAP = 24                 # space between sections and between cards
+CARD_PAD = 24            # padding inside cards
+RADIUS = 12              # card radius
+
+UI_FONTS = ["Inter", "Segoe UI Variable Text", "Segoe UI",
+            "SF Pro Text", "Helvetica Neue", "DejaVu Sans"]
+MONO_FONTS = ["JetBrains Mono", "Cascadia Mono", "Consolas",
+              "SF Mono", "Menlo", "DejaVu Sans Mono"]
+
+
+def _pick_family(candidates):
+    available = set(tkfont.families())
+    return next((name for name in candidates if name in available),
+                "TkDefaultFont")
+
+
+def _format_time(value):
+    """Turn a stored timestamp into 'Today, 14:05' or '24 Nov, 09:30'."""
+    if not value:
+        return ""
+    try:
+        moment = datetime.fromisoformat(str(value))
+    except ValueError:
+        return str(value)
+
+    today = datetime.now().date()
+    clock = moment.strftime("%H:%M")
+    if moment.date() == today:
+        return f"Today, {clock}"
+    if moment.date() == today - timedelta(days=1):
+        return f"Yesterday, {clock}"
+    return f"{moment.day} {moment.strftime('%b')}, {clock}"
 
 
 class DashboardFrame(ctk.CTkFrame):
 
     def __init__(self, parent, user, on_logout):
-        super().__init__(parent, corner_radius=0)
+        super().__init__(parent, corner_radius=0, fg_color=BG)
 
         self.user = user
         self.on_logout = on_logout
@@ -25,486 +113,260 @@ class DashboardFrame(ctk.CTkFrame):
         self.activity_manager = ActivityManager()
         self.task_manager = TaskManager()
         self.quiz_history = QuizHistory()
-        self.configure(fg_color="#F4F6FA")
 
-        # Sidebar
-        self.sidebar = Sidebar(
-            self,
-            self.show_page,
-            self.on_logout
-        )
+        ui = _pick_family(UI_FONTS)
+        mono = _pick_family(MONO_FONTS)
+        self.fonts = {
+            "title": ctk.CTkFont(family=ui, size=28),
+            "heading": ctk.CTkFont(family=ui, size=16, weight="bold"),
+            "body": ctk.CTkFont(family=ui, size=14),
+            "small": ctk.CTkFont(family=ui, size=13),
+            "figure": ctk.CTkFont(family=ui, size=30),
+            "hero": ctk.CTkFont(family=ui, size=48),
+            "meta": ctk.CTkFont(family=mono, size=12),
+        }
 
-        self.sidebar.pack(
-            side="left",
-            fill="y"
-        )
+        self.sidebar = Sidebar(self, self.show_page, self.on_logout)
+        self.sidebar.pack(side="left", fill="y")
 
-        # Main content area
-        # Main content area
         self.content = ctk.CTkScrollableFrame(
             self,
             corner_radius=0,
-            fg_color="#F4F6FA",
-            scrollbar_button_color="#A0AEC0",
-            scrollbar_button_hover_color="#718096"
+            fg_color=BG,
+            scrollbar_button_color="#D4D4D8",
+            scrollbar_button_hover_color="#A1A1AA"
         )
-
-        self.content.pack(
-            side="right",
-            fill="both",
-            expand=True
-        )
+        self.content.pack(side="right", fill="both", expand=True)
 
         self.show_page("Dashboard")
 
-    # Clear existing page
-    def clear_content(self):
+    # Navigation
 
+    def clear_content(self):
         for widget in self.content.winfo_children():
             widget.destroy()
 
-    # Page navigation
     def show_page(self, page):
-
         self.clear_content()
+
+        pages = {
+            "My Subjects": lambda: SubjectsFrame(self.content, self.user),
+            "AI Tutor": lambda: AITutorFrame(self.content, self.user),
+            "All Activity": lambda: ActivityFrame(
+                self.content, self.user,
+                lambda: self.show_page("Dashboard")
+            ),
+            "Progress": lambda: ProgressFrame(self.content, self.user),
+            "Study Planner": lambda: PlannerFrame(self.content, self.user),
+            "PDF Assistant": lambda: PDFAssistantFrame(self.content, self.user),
+            "Quizzes": lambda: QuizFrame(self.content, self.user),
+        }
 
         if page == "Dashboard":
             self.show_dashboard()
-
-        elif page == "My Subjects":
-
-            subjects_frame = SubjectsFrame(
-                self.content,
-                self.user
-            )
-
-            subjects_frame.pack(
-                fill="both",
-                expand=True
-            )
-
-        elif page == "AI Tutor":
-            self.clear_content()
-            AITutorFrame(
-            self.content,
-            self.user
-        ).pack(fill="both", expand=True)
-
-        elif page == "All Activity":
-
-            activity_frame = ActivityFrame(
-                self.content,
-                self.user,
-                lambda: self.show_page("Dashboard")
-            )
-
-            activity_frame.pack(
-                fill="both",
-                expand=True
-            )
-
-        elif page == "Progress":
-
-            progress_frame = ProgressFrame(
-                self.content,
-                self.user
-            )
-
-            progress_frame.pack(
-                fill="both",
-                expand=True
-            )
-
-        elif page == "Study Planner":
-
-            planner_frame = PlannerFrame(
-                self.content,
-                self.user
-            )
-
-            planner_frame.pack(
-                fill="both",
-                expand=True
-            )
-
-        elif page == "PDF Assistant":
-
-            pdf_frame = PDFAssistantFrame(
-                self.content,
-                self.user
-        )
-
-            pdf_frame.pack(
-                fill="both",
-                expand=True
-            )    
-
-        elif page == "Quizzes":
-            quiz_frame = QuizFrame(
-            self.content,
-            self.user
-        )
-            quiz_frame.pack(fill="both", expand=True)
+        elif page in pages:
+            pages[page]().pack(fill="both", expand=True)
         else:
             self.show_placeholder(page)
 
-    # Dashboard page
-    def show_dashboard(self):
+    # Building blocks
 
+    def _card(self, parent):
+        return ctk.CTkFrame(
+            parent,
+            fg_color=CARD,
+            corner_radius=RADIUS,
+            border_width=1,
+            border_color=HAIRLINE
+        )
+
+    # CTkLabel pads every label to 28px tall. Fixed heights per style
+    # keep two-line rows and stat cards tight.
+    LINE_HEIGHTS = {"title": 36, "heading": 24, "body": 20, "small": 20,
+                    "figure": 36, "hero": 56, "meta": 16}
+
+    def _label(self, parent, text, font, color=TEXT, **kwargs):
+        return ctk.CTkLabel(
+            parent, text=text, font=self.fonts[font],
+            height=self.LINE_HEIGHTS[font],
+            text_color=color, anchor="w", justify="left", **kwargs
+        )
+
+    # Dashboard
+
+    def show_dashboard(self):
         username = self.user.get("username", "Student")
         user_email = self.user["email"]
 
-        # Fetch subjects
-        subjects = self.subject_manager.get_subjects(
-            user_email
-        )
-
-        total_subjects = len(subjects)
-
+        subjects = self.subject_manager.get_subjects(user_email)
         quiz_attempts = self.quiz_history.get_history(user_email)
-        total_quizzes = len(quiz_attempts)
-
-        # Fetch overall progress
-        overall_progress = self.subject_manager.get_overall_progress(
-            user_email
+        progress = self.subject_manager.get_overall_progress(user_email)
+        tasks = self.task_manager.get_task_statistics(user_email)
+        recent = self.activity_manager.get_recent_activities(
+            user_email, limit=10
         )
 
-        # Header
-        header = ctk.CTkFrame(
-            self.content,
-            fg_color="transparent"
-        )
+        self._build_header(username)
+        self._build_stats(len(subjects), progress, tasks, len(quiz_attempts))
+        self._build_progress(progress)
+        self._build_activity(recent)
 
-        header.pack(
-            fill="x",
-            padx=35,
-            pady=(30, 20)
-        )
+    def _build_header(self, username):
+        header = ctk.CTkFrame(self.content, fg_color="transparent")
+        header.pack(fill="x", padx=PAGE_X, pady=(40, GAP))
 
-        ctk.CTkLabel(
-            header,
-            text=f"Welcome back, {username}!",
-            font=ctk.CTkFont(size=28, weight="bold"),
-            text_color="#202938"
-        ).pack(anchor="w")
+        self._label(header, "Overview", "title").pack(anchor="w")
 
-        ctk.CTkLabel(
-            header,
-            text="Here's an overview of your learning progress.",
-            font=ctk.CTkFont(size=14),
-            text_color="#778195"
-        ).pack(
-            anchor="w",
-            pady=(7, 0)
-        )
+        today = datetime.now()
+        date_line = f"{today.strftime('%A')} {today.day} {today.strftime('%B')}"
+        self._label(
+            header, f"{date_line}  ·  {username}", "small", TEXT_2
+        ).pack(anchor="w", pady=(4, 0))
 
-        # Statistics cards
-        cards_frame = ctk.CTkFrame(
-            self.content,
-            fg_color="transparent"
-        )
+    def _build_stats(self, total_subjects, progress, tasks, total_quizzes):
+        row = ctk.CTkFrame(self.content, fg_color="transparent")
+        row.pack(fill="x", padx=PAGE_X)
+        # Cards in columns 0, 2, 4 with fixed gutters between them, so all
+        # three come out the same width.
+        row.grid_columnconfigure((0, 2, 4), weight=1, uniform="stats")
+        row.grid_columnconfigure((1, 3), minsize=GAP)
 
-        cards_frame.pack(
-            fill="x",
-            padx=25,
-            pady=10
-        )
+        pending = tasks["pending_tasks"]
+        done = tasks["completed_tasks"]
 
-        task_statistics = self.task_manager.get_task_statistics(
-            user_email
-        )
-
-        cards = [
-            ("My Total Subjects", total_subjects, "Subjects added"),
-            (
-                "Study Tasks",
-                task_statistics["pending_tasks"],
-                f'{task_statistics["completed_tasks"]} completed'
-            ),
-            ("Quizzes Taken", total_quizzes, "Quizzes completed")
+        stats = [
+            ("Subjects", total_subjects,
+             f"{progress['total_topics']} topics in total"),
+            ("Tasks to do", pending,
+             f"{done} of {done + pending} done"),
+            ("Quizzes taken", total_quizzes, "All attempts"),
         ]
 
-        for title, value, description in cards:
+        for column, (label, value, caption) in enumerate(stats):
+            card = self._card(row)
+            card.grid(row=0, column=column * 2, sticky="nsew")
+            self._label(card, label, "small", TEXT_2).pack(
+                anchor="w", padx=CARD_PAD, pady=(20, 8))
+            self._label(card, f"{value:,}", "figure").pack(
+                anchor="w", padx=CARD_PAD)
+            self._label(card, caption, "meta", MUTED).pack(
+                anchor="w", padx=CARD_PAD, pady=(8, 20))
 
-            card = ctk.CTkFrame(
-                cards_frame,
-                fg_color="#FFFFFF",
-                corner_radius=12,
-                border_width=1,
-                border_color="#E5E9F0"
-            )
+    def _build_progress(self, progress):
+        card = self._card(self.content)
+        card.pack(fill="x", padx=PAGE_X, pady=(GAP, 0))
 
-            card.pack(
-                side="left",
-                fill="both",
-                expand=True,
-                padx=10,
-                pady=10
-            )
+        completed = progress["completed_topics"]
+        total = progress["total_topics"]
+        percent = round(progress["percentage"])
 
-            ctk.CTkLabel(
-                card,
-                text=title,
-                font=ctk.CTkFont(size=14, weight="bold"),
-                text_color="#657087"
-            ).pack(
-                anchor="w",
-                padx=20,
-                pady=(20, 5)
-            )
+        self._label(card, "Syllabus progress", "heading").pack(
+            anchor="w", padx=CARD_PAD, pady=(CARD_PAD, 12))
 
-            ctk.CTkLabel(
-                card,
-                text=str(value),
-                font=ctk.CTkFont(size=30, weight="bold"),
-                text_color="#3157D5"
-            ).pack(
-                anchor="w",
-                padx=20
-            )
+        figures = ctk.CTkFrame(card, fg_color="transparent")
+        figures.pack(fill="x", padx=CARD_PAD)
 
-            ctk.CTkLabel(
-                card,
-                text=description,
-                font=ctk.CTkFont(size=12),
-                text_color="#8993A5"
-            ).pack(
-                anchor="w",
-                padx=20,
-                pady=(5, 20)
-            )
+        self._label(figures, f"{percent}%", "hero", ACCENT).pack(side="left")
 
-        # Overall Learning Progress
-        progress_card = ctk.CTkFrame(
-            self.content,
-            fg_color="#FFFFFF",
-            corner_radius=12,
-            border_width=1,
-            border_color="#E5E9F0"
+        caption = (
+            f"{completed} of {total} topics completed" if total
+            else "Add topics to a subject to track them here"
+        )
+        self._label(figures, caption, "body", TEXT_2).pack(
+            side="left", padx=(16, 0), pady=(16, 0))
+
+        bar = ctk.CTkCanvas(card, height=12, bg=CARD,
+                            highlightthickness=0, bd=0)
+        bar.pack(fill="x", padx=CARD_PAD, pady=(16, CARD_PAD))
+        bar.bind(
+            "<Configure>",
+            lambda event: self._draw_syllabus(bar, event.width,
+                                              completed, total)
         )
 
-        progress_card.pack(
-            fill="x",
-            padx=35,
-            pady=(10, 20)
-        )
+    def _draw_syllabus(self, canvas, width, completed, total):
+        """One tick per topic, filled in ink as it gets done."""
+        canvas.delete("all")
+        height = 12
 
-        ctk.CTkLabel(
-            progress_card,
-            text="Overall Learning Progress",
-            font=ctk.CTkFont(size=18, weight="bold"),
-            text_color="#202938"
-        ).pack(
-            anchor="w",
-            padx=20,
-            pady=(18, 5)
-        )
+        # Too many topics to show one by one: fall back to a plain bar.
+        if total == 0 or width / total < 6:
+            share = completed / total if total else 0
+            canvas.create_rectangle(0, 0, width, height,
+                                    fill=TRACK, width=0)
+            canvas.create_rectangle(0, 0, width * share, height,
+                                    fill=ACCENT, width=0)
+            return
 
-        ctk.CTkLabel(
-            progress_card,
-            text=(
-                f"{overall_progress['completed_topics']} of "
-                f"{overall_progress['total_topics']} topics completed"
-            ),
-            font=ctk.CTkFont(size=13),
-            text_color="#778195"
-        ).pack(
-            anchor="w",
-            padx=20,
-            pady=(0, 10)
-        )
+        gap = 3 if width / total >= 10 else 2
+        segment = (width - gap * (total - 1)) / total
+        for index in range(total):
+            x0 = index * (segment + gap)
+            color = ACCENT if index < completed else TRACK
+            canvas.create_rectangle(x0, 0, x0 + segment, height,
+                                    fill=color, width=0)
 
-        progress_bar = ctk.CTkProgressBar(
-            progress_card,
-            height=12
-        )
 
-        progress_bar.pack(
-            fill="x",
-            padx=20,
-            pady=(0, 8)
-        )
+    def _build_activity(self, activities):
+        card = self._card(self.content)
+        card.pack(fill="x", padx=PAGE_X, pady=(GAP, 40))
 
-        progress_bar.set(
-            overall_progress["percentage"] / 100
-        )
+        header = ctk.CTkFrame(card, fg_color="transparent")
+        header.pack(fill="x", padx=CARD_PAD, pady=(20, 8))
 
-        ctk.CTkLabel(
-            progress_card,
-            text=f"{overall_progress['percentage']}%",
-            font=ctk.CTkFont(size=13, weight="bold"),
-            text_color="#3157D5"
-        ).pack(
-            anchor="e",
-            padx=20,
-            pady=(0, 15)
-        )
-
-        # Recent Activity
-        activity_frame = ctk.CTkFrame(
-            self.content,
-            fg_color="#FFFFFF",
-            corner_radius=12,
-            border_width=1,
-            border_color="#E5E9F0"
-        )
-
-        activity_frame.pack(
-            fill="both",
-            expand=True,
-            padx=35,
-            pady=(20, 30)
-        )
-
-        # Activity heading
-        activity_header = ctk.CTkFrame(
-            activity_frame,
-            fg_color="transparent"
-        )
-
-        activity_header.pack(
-            fill="x",
-            padx=25,
-            pady=(20, 10)
-        )
-
-        ctk.CTkLabel(
-            activity_header,
-            text="Recent Activity",
-            font=ctk.CTkFont(size=19, weight="bold"),
-            text_color="#202938"
-        ).pack(side="left")
+        self._label(header, "Recent activity", "heading").pack(side="left")
 
         ctk.CTkButton(
-            activity_header,
-            text="View All",
-            width=90,
+            header,
+            text="View all",
+            font=self.fonts["small"],
+            width=0,
             height=32,
-            fg_color="#3157D5",
-            hover_color="#2546B5",
+            corner_radius=8,
+            fg_color="transparent",
+            hover_color=RAISED,
+            text_color=ACCENT,
             command=lambda: self.show_page("All Activity")
         ).pack(side="right")
 
-        # Fetch latest 10 activities
-        recent_activities = (
-            self.activity_manager.get_recent_activities(
-                user_email,
-                limit=10
-            )
-        )
+        if not activities:
+            self._label(card, "No activity yet", "body").pack(
+                anchor="w", padx=CARD_PAD, pady=(8, 4))
+            self._label(
+                card, "Add a subject or a topic and it will show up here",
+                "small", MUTED
+            ).pack(anchor="w", padx=CARD_PAD, pady=(0, CARD_PAD))
+            return
 
-        activities_container = ctk.CTkScrollableFrame(
-            activity_frame,
-            fg_color="transparent",
-            corner_radius=0
-        )
+        for index, activity in enumerate(activities):
+            if index:
+                ctk.CTkFrame(card, height=1, corner_radius=0,
+                             fg_color=HAIRLINE).pack(
+                    fill="x", padx=CARD_PAD)
 
-        activities_container.pack(
-            fill="both",
-            expand=True,
-            padx=15,
-            pady=(0, 15)
-        )
+            row = ctk.CTkFrame(card, fg_color="transparent")
+            last = index == len(activities) - 1
+            row.pack(fill="x", padx=CARD_PAD, pady=(12, 20 if last else 12))
+            row.grid_columnconfigure(0, weight=1)
 
-        if recent_activities:
+            self._label(row, activity["item_name"], "body").grid(
+                row=0, column=0, sticky="w")
 
-            for activity in recent_activities:
+            secondary = activity["action"]
+            if activity.get("details"):
+                secondary += f"  ·  {activity['details']}"
+            self._label(row, secondary, "small", TEXT_2).grid(
+                row=1, column=0, sticky="w", pady=(4, 0))
 
-                item = ctk.CTkFrame(
-                    activities_container,
-                    fg_color="#F4F6FA",
-                    corner_radius=8
-                )
+            self._label(
+                row, _format_time(activity.get("created_at")), "meta", MUTED
+            ).grid(row=0, column=1, rowspan=2, sticky="e", padx=(16, 0))
 
-                item.pack(
-                    fill="x",
-                    padx=10,
-                    pady=5
-                )
 
-                details = ctk.CTkFrame(
-                    item,
-                    fg_color="transparent"
-                )
+    # Pages that are not built yet
 
-                details.pack(
-                    fill="x",
-                    padx=15,
-                    pady=10
-                )
-
-                ctk.CTkLabel(
-                    details,
-                    text=(
-                        f"{activity['action']}: "
-                        f"{activity['item_name']}"
-                    ),
-                    font=ctk.CTkFont(
-                        size=14,
-                        weight="bold"
-                    ),
-                    text_color="#202938"
-                ).pack(anchor="w")
-
-                if activity.get("details"):
-
-                    ctk.CTkLabel(
-                        details,
-                        text=activity["details"],
-                        font=ctk.CTkFont(size=11),
-                        text_color="#778195"
-                    ).pack(
-                        anchor="w",
-                        pady=(3, 0)
-                    )
-
-                ctk.CTkLabel(
-                    details,
-                    text=activity.get("created_at", ""),
-                    font=ctk.CTkFont(size=11),
-                    text_color="#8993A5"
-                ).pack(
-                    anchor="w",
-                    pady=(3, 0)
-                )
-
-        else:
-
-            ctk.CTkLabel(
-                activities_container,
-                text="No recent activity yet.",
-                font=ctk.CTkFont(size=14),
-                text_color="#8993A5"
-            ).pack(
-                anchor="w",
-                padx=10,
-                pady=15
-            )
-
-            ctk.CTkLabel(
-                activities_container,
-                text="Add your first subject or topic to get started!",
-                font=ctk.CTkFont(size=12),
-                text_color="#8993A5"
-            ).pack(
-                anchor="w",
-                padx=10,
-                pady=(0, 15)
-            )
-
-    # Placeholder for upcoming pages
     def show_placeholder(self, page):
-
-        ctk.CTkLabel(
-            self.content,
-            text=page,
-            font=ctk.CTkFont(size=28, weight="bold"),
-            text_color="#202938"
-        ).pack(pady=(180, 10))
-
-        ctk.CTkLabel(
-            self.content,
-            text="This section will be implemented in a later step.",
-            font=ctk.CTkFont(size=14),
-            text_color="#778195"
+        self._label(self.content, page, "title").pack(pady=(160, 8))
+        self._label(
+            self.content, "Not available yet", "body", MUTED
         ).pack()

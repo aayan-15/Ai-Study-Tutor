@@ -1,19 +1,47 @@
-import customtkinter as ctk
+import re
 import threading
+
+import customtkinter as ctk
+
 from Core.gemini_service import GeminiService
+from Gui import theme as t
+
+
+WRAP = 640          # reading width for messages
+TOP_PAD = 40        # page top
+BOTTOM_PAD = 32     # page bottom
+
+GREETING = (
+    "Ask me about anything you're studying. I can explain a concept, "
+    "walk through an example or check your understanding."
+)
+
+
+def clean_markdown(text):
+    """Model replies often use markdown. Labels show it raw, so tidy it."""
+    lines = []
+    for line in (text or "").strip().splitlines():
+        stripped = line.lstrip()
+        indent = line[:len(line) - len(stripped)]
+        if stripped.startswith(("* ", "- ")):
+            stripped = "• " + stripped[2:]
+        stripped = re.sub(r"^#{1,6}\s+", "", stripped)
+        lines.append(indent + stripped)
+    text = "\n".join(lines)
+    text = re.sub(r"\*\*(.+?)\*\*", r"\1", text)
+    text = re.sub(r"`([^`]+)`", r"\1", text)
+    return re.sub(r"\n{3,}", "\n\n", text)
+
 
 class AITutorFrame(ctk.CTkFrame):
 
     def __init__(self, parent, user):
-        super().__init__(
-            parent,
-            corner_radius=0,
-            fg_color="#F4F6FA"
-        )
+        super().__init__(parent, corner_radius=0, fg_color=t.BG)
 
         self.user = user
         self.gemini = GeminiService()
         self.is_generating = False
+        self.thinking_row = None
 
         # Store conversation history
         self.conversation_history = []
@@ -22,284 +50,184 @@ class AITutorFrame(ctk.CTkFrame):
         self.create_chat_area()
         self.create_input_area()
 
-        self.add_message(
-            "ai",
-            "Hello! I'm your AI Study Tutor. Ask me anything about your studies."
-        )
+        self.add_message("ai", GREETING)
 
-    # ---------------- HEADER ----------------
+        # The chat fills the window height, so the conversation scrolls
+        # inside its card and the input stays in view.
+        self.winfo_toplevel().bind("<Configure>", self._fit_chat, add="+")
+        self.after_idle(self._fit_chat)
+
+    # Header
 
     def create_header(self):
+        self.header = ctk.CTkFrame(self, fg_color="transparent")
+        self.header.pack(fill="x", padx=t.PAGE_X, pady=(TOP_PAD, t.GAP))
 
-        header = ctk.CTkFrame(
-            self,
-            fg_color="white",
-            corner_radius=12
-        )
+        t.label(self.header, "AI tutor", "title").pack(anchor="w")
+        t.label(
+            self.header,
+            "Ask about anything you're studying. The tutor remembers this "
+            "conversation until you leave the page",
+            "small", t.TEXT_2
+        ).pack(anchor="w", pady=(4, 0))
 
-        header.pack(
-            fill="x",
-            padx=25,
-            pady=(25, 15)
-        )
-
-        ctk.CTkLabel(
-            header,
-            text="AI Study Tutor",
-            font=("Arial", 24, "bold"),
-            text_color="#202938"
-        ).pack(
-            anchor="w",
-            padx=20,
-            pady=(15, 5)
-        )
-
-        ctk.CTkLabel(
-            header,
-            text="Your personal AI assistant for learning and understanding concepts.",
-            font=("Arial", 13),
-            text_color="#7B8494"
-        ).pack(
-            anchor="w",
-            padx=20,
-            pady=(0, 15)
-        )
-
-    # ---------------- CHAT AREA ----------------
+    # Conversation
 
     def create_chat_area(self):
-
         self.chat_frame = ctk.CTkScrollableFrame(
             self,
-            fg_color="white",
-            corner_radius=12
+            height=360,
+            fg_color=t.CARD,
+            corner_radius=t.RADIUS,
+            border_width=1,
+            border_color=t.HAIRLINE,
+            scrollbar_button_color="#E4E4E7",
+            scrollbar_button_hover_color="#D4D4D8"
         )
+        self.chat_frame.pack(fill="x", padx=t.PAGE_X)
 
-        self.chat_frame.pack(
-            fill="both",
-            expand=True,
-            padx=25,
-            pady=(0, 15)
-        )
+    def _fit_chat(self, event=None):
+        if not self.winfo_exists():
+            return
+        top = self.winfo_toplevel()
+        if event is not None and event.widget is not top:
+            return
+        used = (self.header.winfo_reqheight() + TOP_PAD + t.GAP
+                + self.input_frame.winfo_reqheight() + 16 + BOTTOM_PAD)
+        height = max(280, top.winfo_height() - used - 35)
+        if abs(self.chat_frame.cget("height") - height) > 4:
+            self.chat_frame.configure(height=height)
 
     def add_message(self, sender, message):
-
+        """Your messages sit right in a grey bubble, the tutor's read as
+        plain text on the page, like notes."""
         is_user = sender == "user"
 
-        message_row = ctk.CTkFrame(
-            self.chat_frame,
-            fg_color="transparent"
-        )
+        row = ctk.CTkFrame(self.chat_frame, fg_color="transparent")
+        row.pack(fill="x", padx=16, pady=(16, 0))
 
-        message_row.pack(
-            fill="x",
-            padx=15,
-            pady=8
-        )
+        if is_user:
+            bubble = ctk.CTkFrame(row, fg_color=t.RAISED,
+                                  corner_radius=t.RADIUS)
+            bubble.pack(side="right", padx=(96, 0))
+            t.label(bubble, message, "body", wraplength=WRAP - 96,
+                    height=0).pack(padx=16, pady=12)
+        else:
+            t.label(row, "Tutor", "meta", t.MUTED).pack(anchor="w")
+            t.label(row, clean_markdown(message), "body",
+                    wraplength=WRAP, height=0).pack(anchor="w",
+                                                    pady=(4, 0))
 
-        message_bubble = ctk.CTkFrame(
-            message_row,
-            fg_color="#2563EB" if is_user else "#F0F2F5",
-            corner_radius=12
-        )
+        self._scroll_to_end()
+        return row
 
-        message_bubble.pack(
-            side="right" if is_user else "left",
-            padx=(80, 0) if is_user else (0, 80)
-        )
-
-        ctk.CTkLabel(
-            message_bubble,
-            text=message,
-            font=("Arial", 14),
-            text_color="white" if is_user else "#202938",
-            wraplength=550,
-            justify="left"
-        ).pack(
-            padx=15,
-            pady=12
-        )
-
+    def _scroll_to_end(self):
+        self.chat_frame.update_idletasks()
         self.chat_frame._parent_canvas.yview_moveto(1.0)
 
-    # ---------------- INPUT AREA ----------------
+    # Input
 
     def create_input_area(self):
+        self.input_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.input_frame.pack(fill="x", padx=t.PAGE_X,
+                              pady=(8, 20))
+        self.input_frame.grid_columnconfigure(0, weight=1)
 
-        input_frame = ctk.CTkFrame(
-            self,
-            fg_color="white",
-            corner_radius=12
+        self.message_entry = t.entry(
+            self.input_frame,
+            "Like: explain normalization with an example"
         )
+        self.message_entry.configure(height=44)
+        self.message_entry.grid(row=0, column=0, sticky="ew", padx=(0, 12))
+        self.message_entry.bind("<Return>", self.handle_enter)
 
-        input_frame.pack(
-            fill="x",
-            padx=25,
-            pady=(0, 25)
-        )
+        self.send_button = t.primary_button(
+            self.input_frame, "Send", self.send_message, width=88)
+        self.send_button.configure(height=44)
+        self.send_button.grid(row=0, column=1)
 
-        self.message_entry = ctk.CTkEntry(
-            input_frame,
-            placeholder_text="Ask your study question...",
-            height=45,
-            font=("Arial", 14),
-            border_color="#D9DEE8"
-        )
-
-        self.message_entry.pack(
-            side="left",
-            fill="x",
-            expand=True,
-            padx=(15, 10),
-            pady=15
-        )
-
-        self.message_entry.bind(
-            "<Return>",
-            self.handle_enter
-        )
-
-        self.send_button = ctk.CTkButton(
-            input_frame,
-            text="Send",
-            width=90,
-            height=45,
-            fg_color="#2563EB",
-            hover_color="#1D4ED8",
-            command=self.send_message
-        )
-
-        self.send_button.pack(
-            side="right",
-            padx=(0, 15),
-            pady=15
-        )
-
-    # ---------------- SEND MESSAGE ----------------
+    # Sending
 
     def handle_enter(self, event):
-
         self.send_message()
-
         return "break"
 
     def send_message(self):
-
         if self.is_generating:
             return
 
         message = self.message_entry.get().strip()
-
         if not message:
             return
 
         self.message_entry.delete(0, "end")
-
         self.add_message("user", message)
 
         self.is_generating = True
+        t.set_primary_enabled(self.send_button, False)
 
-        self.send_button.configure(
-            state="disabled",
-            text="..."
-        )
-
-        self.add_message("ai", "Thinking...")
+        # Placeholder row, replaced by the answer when it arrives
+        self.thinking_row = ctk.CTkFrame(self.chat_frame,
+                                         fg_color="transparent")
+        self.thinking_row.pack(fill="x", padx=16, pady=(16, 0))
+        t.label(self.thinking_row, "Tutor", "meta", t.MUTED).pack(anchor="w")
+        t.label(self.thinking_row, "Thinking", "body", t.MUTED).pack(
+            anchor="w", pady=(4, 0))
+        self._scroll_to_end()
 
         # Copy previous conversation history
         history = self.conversation_history.copy()
 
-        # Run AI generation in background
-        thread = threading.Thread(
+        threading.Thread(
             target=self.generate_ai_response,
             args=(message, history),
             daemon=True
-        )
+        ).start()
 
-        thread.start()
-
-    # ---------------- AI RESPONSE ----------------
+    # AI response
 
     def generate_ai_response(self, message, history):
-
         try:
-
-            response = self.gemini.generate_response(
-                message,
-                history
-            )
-
+            response = self.gemini.generate_response(message, history)
             if not response:
-                response = "Sorry, no response was generated."
-
-        except Exception as e:
-
-            print(f"Local AI Error: {e}")
-
+                response = "No answer came back. Try asking again."
+        except Exception as error:
+            print(f"AI Tutor Error: {error}")
             response = (
-                "Sorry, I couldn't connect to the AI service. "
-                "Please make sure Grok is running and try again."
+                "Couldn't reach the AI service. Check your internet "
+                "connection and API key, then try again."
             )
 
-        # Safely schedule UI update
         try:
-
             self.after(
-                100,
+                0,
                 lambda response=response, message=message:
                 self.display_ai_response_safe(response, message)
             )
-
-        except Exception as e:
-
-            print(f"AI scheduling error: {e}")
-
-    # ---------------- DISPLAY AI RESPONSE ----------------
+        except Exception as error:
+            print(f"AI scheduling error: {error}")
 
     def display_ai_response_safe(self, response, user_message):
-
         try:
-
-            if not self.winfo_exists():
+            if not self.winfo_exists() or not self.chat_frame.winfo_exists():
                 return
-
-            if not self.chat_frame.winfo_exists():
-                return
-
-            self.display_ai_response(
-                response,
-                user_message
-            )
-
-        except Exception as e:
-
-            print(f"AI response display error: {e}")
+            self.display_ai_response(response, user_message)
+        except Exception as error:
+            print(f"AI response display error: {error}")
 
     def display_ai_response(self, response, user_message):
-
-        # Remove temporary Thinking message
-        children = self.chat_frame.winfo_children()
-
-        if children:
-            children[-1].destroy()
+        if self.thinking_row is not None and self.thinking_row.winfo_exists():
+            self.thinking_row.destroy()
+        self.thinking_row = None
 
         # Store conversation in memory
-        self.conversation_history.append({
-            "role": "user",
-            "content": user_message
-        })
+        self.conversation_history.append(
+            {"role": "user", "content": user_message})
+        self.conversation_history.append(
+            {"role": "assistant", "content": response})
 
-        self.conversation_history.append({
-            "role": "assistant",
-            "content": response
-        })
-
-        # Display AI response
         self.add_message("ai", response)
 
         self.is_generating = False
-
-        self.send_button.configure(
-            state="normal",
-            text="Send"
-        )
+        t.set_primary_enabled(self.send_button, True)
+        self.message_entry.focus_set()

@@ -1,3 +1,4 @@
+import threading
 
 import customtkinter as ctk
 
@@ -6,16 +7,16 @@ from Core.quiz_result import QuizResult
 from Core.quiz_history import QuizHistory
 from Core.subject_manager import SubjectManager
 from Core.topics import TopicManager
+from Gui import theme as t
+
+
+WRAP = 760  # wrap width for questions, options and explanations
 
 
 class QuizFrame(ctk.CTkFrame):
 
     def __init__(self, parent, user):
-        super().__init__(
-            parent,
-            corner_radius=0,
-            fg_color="#F4F6FA"
-        )
+        super().__init__(parent, corner_radius=0, fg_color=t.BG)
 
         self.user = user
         self.user_email = user["email"]
@@ -30,858 +31,518 @@ class QuizFrame(ctk.CTkFrame):
         self.current_question = 0
         self.selected_answer = None
         self.answer_var = None
+        self.option_rows = {}
 
         self.subjects = []
         self.topics = []
 
         self.show_setup()
 
-    # Clear existing interface
-    def clear_interface(self):
+    # Shared pieces
 
+    def clear_interface(self):
         for widget in self.winfo_children():
             widget.destroy()
 
-    # Page heading
-    def create_heading(self, title, description):
+    def create_heading(self, title, description, description_color=None):
+        header = ctk.CTkFrame(self, fg_color="transparent")
+        header.pack(fill="x", padx=t.PAGE_X, pady=(40, t.GAP))
 
-        ctk.CTkLabel(
-            self,
-            text=title,
-            font=ctk.CTkFont(size=28, weight="bold"),
-            text_color="#202938"
-        ).pack(
-            anchor="w",
-            padx=35,
-            pady=(30, 5)
+        t.label(header, title, "title").pack(anchor="w")
+        self.heading_note = t.label(header, description, "small",
+                                    description_color or t.TEXT_2)
+        self.heading_note.pack(anchor="w", pady=(4, 0))
+        return header
+
+    def _field(self, parent, column, caption, widget_factory, pad_right=12):
+        box = ctk.CTkFrame(parent, fg_color="transparent")
+        box.grid(row=0, column=column, sticky="ew", padx=(0, pad_right))
+        t.label(box, caption, "small", t.TEXT_2).pack(anchor="w",
+                                                      pady=(0, 8))
+        widget = widget_factory(box)
+        widget.pack(fill="x")
+        return widget
+
+    def _combo(self, parent, values, command=None):
+        return ctk.CTkComboBox(
+            parent,
+            values=values,
+            height=40,
+            corner_radius=t.CONTROL_RADIUS,
+            border_width=1,
+            border_color=t.FIELD_BORDER,
+            button_color=t.FIELD_BORDER,
+            button_hover_color="#D4D4D8",
+            fg_color=t.CARD,
+            text_color=t.TEXT,
+            dropdown_fg_color=t.CARD,
+            dropdown_hover_color=t.RAISED,
+            dropdown_text_color=t.TEXT,
+            font=t.fonts()["body"],
+            dropdown_font=t.fonts()["body"],
+            state="readonly",
+            command=command
         )
 
-        ctk.CTkLabel(
-            self,
-            text=description,
-            font=ctk.CTkFont(size=14),
-            text_color="#778195"
-        ).pack(
-            anchor="w",
-            padx=35,
-            pady=(0, 20)
-        )
+    def _show_message(self, label, text, color=t.NEGATIVE, **pack):
+        """Status line that is hidden while empty."""
+        text = (text or "").strip().rstrip("!.")
+        if not text:
+            label.pack_forget()
+            return
+        label.configure(text=text, text_color=color)
+        label.pack(anchor="w", **pack)
 
-    # Quiz setup screen
+    # Setup screen
+
     def show_setup(self):
-
         self.clear_interface()
 
         self.create_heading(
-            "AI Quiz Generator",
-            "Test your knowledge with AI-generated quizzes."
+            "Quizzes",
+            "Multiple choice practice generated from your own subjects "
+            "and topics"
         )
 
-        self.subjects = self.subject_manager.get_subjects(
-            self.user_email
-        )
+        self.subjects = self.subject_manager.get_subjects(self.user_email)
 
-        setup_card = ctk.CTkFrame(
-            self,
-            fg_color="#FFFFFF",
-            corner_radius=12,
-            border_width=1,
-            border_color="#E5E9F0"
-        )
+        setup_card = t.card(self)
+        setup_card.pack(fill="x", padx=t.PAGE_X)
 
-        setup_card.pack(
-            fill="x",
-            padx=35,
-            pady=10
-        )
+        t.label(setup_card, "New quiz", "heading").pack(
+            anchor="w", padx=t.CARD_PAD, pady=(t.CARD_PAD, 16))
 
-        ctk.CTkLabel(
-            setup_card,
-            text="Create a New Quiz",
-            font=ctk.CTkFont(size=19, weight="bold"),
-            text_color="#202938"
-        ).pack(
-            anchor="w",
-            padx=25,
-            pady=(22, 18)
-        )
+        fields = ctk.CTkFrame(setup_card, fg_color="transparent")
+        fields.pack(fill="x", padx=t.CARD_PAD, pady=(0, t.CARD_PAD))
+        fields.grid_columnconfigure((0, 1), weight=1, uniform="pick")
 
-        # Subject selection
-        ctk.CTkLabel(
-            setup_card,
-            text="Select Subject",
-            font=ctk.CTkFont(size=13, weight="bold"),
-            text_color="#202938"
-        ).pack(
-            anchor="w",
-            padx=25,
-            pady=(5, 7)
-        )
-
-        subject_names = [
-            subject["name"] for subject in self.subjects
-        ]
-
+        subject_names = [subject["name"] for subject in self.subjects]
         if not subject_names:
-            subject_names = ["No subjects available"]
+            subject_names = ["No subjects yet"]
 
-        self.subject_combo = ctk.CTkComboBox(
-            setup_card,
-            values=subject_names,
-            height=40,
-            command=self.on_subject_change
+        self.subject_combo = self._field(
+            fields, 0, "Subject",
+            lambda box: self._combo(box, subject_names,
+                                    self.on_subject_change)
         )
-
-        self.subject_combo.pack(
-            fill="x",
-            padx=25,
-            pady=(0, 18)
-        )
-
         self.subject_combo.set(subject_names[0])
 
-        if not self.subjects:
-            self.subject_combo.configure(state="disabled")
-
-        # Topic selection
-        ctk.CTkLabel(
-            setup_card,
-            text="Select Topic",
-            font=ctk.CTkFont(size=13, weight="bold"),
-            text_color="#202938"
-        ).pack(
-            anchor="w",
-            padx=25,
-            pady=(0, 7)
+        self.topic_combo = self._field(
+            fields, 1, "Topic",
+            lambda box: self._combo(box, ["Choose a subject first"])
         )
-
-        self.topic_combo = ctk.CTkComboBox(
-            setup_card,
-            values=["Select a subject first"],
-            height=40
-        )
-
-        self.topic_combo.pack(
-            fill="x",
-            padx=25,
-            pady=(0, 18)
-        )
-
-        self.topic_combo.set("Select a subject first")
-
-        # Load topics for initial subject
-        if self.subjects:
-            self.on_subject_change(subject_names[0])
-
-        # Number of questions
-        ctk.CTkLabel(
-            setup_card,
-            text="Number of MCQs",
-            font=ctk.CTkFont(size=13, weight="bold"),
-            text_color="#202938"
-        ).pack(
-            anchor="w",
-            padx=25,
-            pady=(0, 7)
-        )
+        self.topic_combo.set("Choose a subject first")
 
         self.question_count_var = ctk.StringVar(value="5")
-
-        self.question_count_entry = ctk.CTkEntry(
-            setup_card,
-            textvariable=self.question_count_var,
-            height=40,
-            placeholder_text="Enter number of questions"
+        self.question_count_entry = self._field(
+            fields, 2, "Questions",
+            lambda box: t.entry(box, "5", width=96,
+                                textvariable=self.question_count_var)
         )
+        self.question_count_entry.bind("<Return>",
+                                       lambda event: self.generate_quiz())
 
-        self.question_count_entry.pack(
-            fill="x",
-            padx=25,
-            pady=(0, 18)
-        )
+        # Button lines up with the inputs, under an empty caption row
+        button_box = ctk.CTkFrame(fields, fg_color="transparent")
+        button_box.grid(row=0, column=3, sticky="s")
+        self.generate_button = t.primary_button(
+            button_box, "Generate quiz", self.generate_quiz, width=144)
+        self.generate_button.pack()
 
-        # Error / information message
-        self.message_label = ctk.CTkLabel(
-            setup_card,
-            text="",
-            font=ctk.CTkFont(size=12),
-            text_color="#D9534F",
-            wraplength=650
-        )
+        self.message_label = t.label(setup_card, "", "small",
+                                     wraplength=WRAP)
 
-        self.message_label.pack(
-            anchor="w",
-            padx=25,
-            pady=(0, 8)
-        )
+        if self.subjects:
+            self.on_subject_change(subject_names[0])
+        else:
+            self.subject_combo.configure(state="disabled")
+            self.topic_combo.configure(state="disabled")
+            t.set_primary_enabled(self.generate_button, False)
+            self._show_message(
+                self.message_label,
+                "Add a subject and a few topics on the Subjects page first",
+                t.TEXT_2, padx=t.CARD_PAD, pady=(0, t.CARD_PAD)
+            )
 
-        # Generate button
-        self.generate_button = ctk.CTkButton(
-            setup_card,
-            text="Generate Quiz",
-            height=42,
-            font=ctk.CTkFont(size=14, weight="bold"),
-            command=self.generate_quiz
-        )
-
-        self.generate_button.pack(
-            anchor="w",
-            padx=25,
-            pady=(5, 25)
-        )
-
-    # Load topics when subject changes
     def on_subject_change(self, selected_subject):
-
         subject = next(
-            (
-                item for item in self.subjects
-                if item["name"] == selected_subject
-            ),
+            (item for item in self.subjects
+             if item["name"] == selected_subject),
             None
         )
 
-        if not subject:
-            self.topics = []
-            self.topic_combo.configure(
-                values=["No topics available"]
-            )
-            self.topic_combo.set("No topics available")
-            return
-
-        self.topics = self.topic_manager.get_topics(
-            subject["id"],
-            self.user_email
+        self.topics = (
+            self.topic_manager.get_topics(subject["id"], self.user_email)
+            if subject else []
         )
-
-        topic_names = [
-            topic["name"] for topic in self.topics
-        ]
+        topic_names = [topic["name"] for topic in self.topics]
 
         if topic_names:
-            self.topic_combo.configure(values=topic_names)
+            self.topic_combo.configure(values=topic_names, state="readonly")
             self.topic_combo.set(topic_names[0])
+            t.set_primary_enabled(self.generate_button, True)
+            self._show_message(self.message_label, "")
         else:
-            self.topic_combo.configure(
-                values=["No topics available"]
+            self.topic_combo.configure(values=["No topics yet"],
+                                       state="disabled")
+            self.topic_combo.set("No topics yet")
+            t.set_primary_enabled(self.generate_button, False)
+            self._show_message(
+                self.message_label,
+                f"{selected_subject} has no topics yet. Add some on the "
+                f"Subjects page",
+                t.TEXT_2, padx=t.CARD_PAD, pady=(0, t.CARD_PAD)
             )
-            self.topic_combo.set("No topics available")
 
-    # Generate quiz using AI
     def generate_quiz(self):
+        def fail(text):
+            self._show_message(self.message_label, text, t.NEGATIVE,
+                               padx=t.CARD_PAD, pady=(0, t.CARD_PAD))
 
         if not self.subjects:
-            self.message_label.configure(
-                text="Please add a subject before generating a quiz."
-            )
+            fail("Add a subject before generating a quiz")
             return
 
-        selected_subject = self.subject_combo.get()
-        selected_topic = self.topic_combo.get()
-
         subject = next(
-            (
-                item for item in self.subjects
-                if item["name"] == selected_subject
-            ),
+            (item for item in self.subjects
+             if item["name"] == self.subject_combo.get()),
             None
         )
-
         if not subject:
-            self.message_label.configure(
-                text="Please select a valid subject."
-            )
+            fail("Choose a subject")
             return
 
         topic = next(
-            (
-                item for item in self.topics
-                if item["name"] == selected_topic
-            ),
+            (item for item in self.topics
+             if item["name"] == self.topic_combo.get()),
             None
         )
-
         if not topic:
-            self.message_label.configure(
-                text="Please add or select a valid topic."
-            )
+            fail("Choose a topic")
             return
 
-        # Validate question count
         try:
-            number_of_questions = int(
-                self.question_count_var.get().strip()
-            )
-
+            number_of_questions = int(self.question_count_var.get().strip())
             if number_of_questions <= 0:
                 raise ValueError
-
         except ValueError:
-            self.message_label.configure(
-                text="Please enter a valid positive whole number.",
-                text_color="#D9534F"
-            )
+            fail("Questions needs a whole number, like 5 or 10")
             return
 
-        self.generate_button.configure(
-            text="Generating...",
-            state="disabled"
+        self.generate_button.configure(text="Generating")
+        t.set_primary_enabled(self.generate_button, False)
+        self._show_message(
+            self.message_label,
+            f"Writing {number_of_questions} questions on {topic['name']}. "
+            f"This takes a few seconds",
+            t.TEXT_2, padx=t.CARD_PAD, pady=(0, t.CARD_PAD)
         )
 
-        self.message_label.configure(
-            text="Please wait while AI generates your quiz...",
-            text_color="#3157D5"
-        )
+        threading.Thread(
+            target=self._generate_in_background,
+            args=(subject["name"], topic["name"], number_of_questions),
+            daemon=True
+        ).start()
 
-        self.update_idletasks()
-
+    def _generate_in_background(self, subject_name, topic_name, count):
         try:
-            self.quiz = self.quiz_manager.generate_quiz(
-                subject["name"],
-                topic["name"],
-                number_of_questions
+            quiz = self.quiz_manager.generate_quiz(subject_name, topic_name,
+                                                   count)
+            error = None if quiz else (
+                self.quiz_manager.last_error
+                or "Couldn't generate the quiz. Try again"
             )
+        except Exception as exc:
+            quiz, error = None, f"Something went wrong: {exc}"
 
-            if not self.quiz:
-                error = (
-                    self.quiz_manager.last_error
-                    or "Quiz generation failed. Please try again."
-                )
+        self.after(0, lambda: self._finish_generation(quiz, error))
 
-                self.message_label.configure(
-                    text=error,
-                    text_color="#D9534F"
-                )
+    def _finish_generation(self, quiz, error):
+        if not self.winfo_exists() or not self.generate_button.winfo_exists():
+            return
 
-                return
+        if error:
+            self.generate_button.configure(text="Generate quiz")
+            t.set_primary_enabled(self.generate_button, True)
+            self._show_message(self.message_label, error, t.NEGATIVE,
+                               padx=t.CARD_PAD, pady=(0, t.CARD_PAD))
+            return
 
-            self.user_answers = [
-                None for _ in self.quiz["questions"]
-            ]
+        self.quiz = quiz
+        self.user_answers = [None for _ in self.quiz["questions"]]
+        self.current_question = 0
+        self.show_question()
 
-            self.current_question = 0
+    # Question screen
 
-            self.show_question()
-
-        except Exception as error:
-
-            self.message_label.configure(
-                text=f"An error occurred: {error}",
-                text_color="#D9534F"
-            )
-
-        finally:
-
-            if (
-                self.winfo_exists()
-                and self.generate_button.winfo_exists()
-            ):
-                self.generate_button.configure(
-                    text="Generate Quiz",
-                    state="normal"
-                )
-
-    # Display current question
     def show_question(self):
-
         self.clear_interface()
 
         questions = self.quiz["questions"]
         question = questions[self.current_question]
-
         total = len(questions)
-        question_number = self.current_question + 1
+        number = self.current_question + 1
 
         self.create_heading(
-            "Your Quiz",
-            f'{self.quiz["subject"]}  |  {self.quiz["topic"]}'
+            self.quiz["topic"],
+            f"{self.quiz['subject']}  ·  Question {number} of {total}"
         )
 
-        # Question information card
-        card = ctk.CTkFrame(
-            self,
-            fg_color="#FFFFFF",
-            corner_radius=12,
-            border_width=1,
-            border_color="#E5E9F0"
-        )
+        card = t.card(self)
+        card.pack(fill="x", padx=t.PAGE_X)
 
-        card.pack(
-            fill="x",
-            padx=35,
-            pady=10
-        )
+        # One tick per question, filled as you answer
+        answered = sum(answer is not None for answer in self.user_answers)
+        top = ctk.CTkFrame(card, fg_color="transparent")
+        top.pack(fill="x", padx=t.CARD_PAD, pady=(t.CARD_PAD, 0))
+        t.tick_bar(top, answered, total, height=8).pack(fill="x")
+        t.label(top, f"{answered} of {total} answered", "meta",
+                t.MUTED).pack(anchor="w", pady=(8, 0))
 
-        # Progress information
-        ctk.CTkLabel(
-            card,
-            text=f"Question {question_number} of {total}",
-            font=ctk.CTkFont(size=14, weight="bold"),
-            text_color="#3157D5"
-        ).pack(
-            anchor="w",
-            padx=25,
-            pady=(22, 10)
-        )
+        t.label(card, question["question"], "question",
+                wraplength=WRAP, height=0).pack(
+            anchor="w", padx=t.CARD_PAD, pady=(t.GAP, 20))
 
-        progress_bar = ctk.CTkProgressBar(
-            card,
-            height=10
-        )
-
-        progress_bar.pack(
-            fill="x",
-            padx=25,
-            pady=(0, 22)
-        )
-
-        progress_bar.set(question_number / total)
-
-        # Question text
-        ctk.CTkLabel(
-            card,
-            text=question["question"],
-            font=ctk.CTkFont(size=17, weight="bold"),
-            text_color="#202938",
-            wraplength=750,
-            justify="left"
-        ).pack(
-            anchor="w",
-            padx=25,
-            pady=(0, 22)
-        )
-
-        # Answer options
-        options_card = ctk.CTkFrame(
-            card,
-            fg_color="#F4F6FA",
-            corner_radius=10
-        )
-
-        options_card.pack(
-            fill="x",
-            padx=25,
-            pady=(0, 20)
-        )
-
+        # Options as full-width rows you can click anywhere on
         self.answer_var = ctk.StringVar(
             value=self.user_answers[self.current_question] or ""
         )
-
+        self.option_rows = {}
+        options = ctk.CTkFrame(card, fg_color="transparent")
+        options.pack(fill="x", padx=t.CARD_PAD, pady=(0, t.CARD_PAD))
         for key, option in question["options"].items():
+            self._option_row(options, key, option)
+        self._style_options()
 
-            ctk.CTkRadioButton(
-                options_card,
-                text=f"{key}. {option}",
-                variable=self.answer_var,
-                value=key,
-                font=ctk.CTkFont(size=14),
-                text_color="#202938",
-                fg_color="#3157D5",
-                hover_color="#2546B5"
-            ).pack(
-                anchor="w",
-                padx=20,
-                pady=13
-            )
-
-        # Navigation buttons
-        navigation = ctk.CTkFrame(
-            self,
-            fg_color="transparent"
-        )
-
-        navigation.pack(
-            fill="x",
-            padx=35,
-            pady=20
-        )
+        # Navigation
+        navigation = ctk.CTkFrame(self, fg_color="transparent")
+        navigation.pack(fill="x", padx=t.PAGE_X, pady=(t.GAP, 40))
 
         if self.current_question > 0:
+            t.secondary_button(navigation, "Previous",
+                               self.previous_question,
+                               width=112).pack(side="left")
 
-            ctk.CTkButton(
-                navigation,
-                text="Previous",
-                width=120,
-                height=40,
-                fg_color="#E5E9F0",
-                hover_color="#D5DAE4",
-                text_color="#202938",
-                command=self.previous_question
-            ).pack(side="left")
+        last = self.current_question == total - 1
+        self.next_button = t.primary_button(
+            navigation,
+            "Submit quiz" if last else "Next",
+            self.submit_quiz if last else self.next_question,
+            width=128
+        )
+        self.next_button.pack(side="right")
 
-        if self.current_question < total - 1:
+        self.nav_message = t.label(navigation, "", "small")
+        self._update_next_button()
 
-            ctk.CTkButton(
-                navigation,
-                text="Next Question",
-                width=140,
-                height=40,
-                command=self.next_question
-            ).pack(side="right")
+    def _option_row(self, parent, key, text):
+        row = ctk.CTkFrame(parent, fg_color=t.CARD,
+                           corner_radius=t.CONTROL_RADIUS,
+                           border_width=1, border_color=t.FIELD_BORDER,
+                           cursor="hand2")
+        row.pack(fill="x", pady=(0, 8))
+        row.grid_columnconfigure(1, weight=1)
 
-        else:
+        key_label = t.label(row, key, "meta", t.MUTED, width=16,
+                            cursor="hand2")
+        key_label.grid(row=0, column=0, sticky="nw", padx=(16, 12),
+                       pady=14)
+        text_label = t.label(row, text, "body", wraplength=WRAP - 80,
+                             height=0, cursor="hand2")
+        text_label.grid(row=0, column=1, sticky="w", padx=(0, 16),
+                        pady=12)
 
-            ctk.CTkButton(
-                navigation,
-                text="Submit Quiz",
-                width=140,
-                height=40,
-                fg_color="#238636",
-                hover_color="#1B6E2B",
-                command=self.submit_quiz
-            ).pack(side="right")
+        for widget in (row, key_label, text_label):
+            widget.bind("<Button-1>", lambda event, k=key: self._select(k))
+            widget.bind("<Enter>", lambda event, k=key: self._hover(k, True))
+            widget.bind("<Leave>", lambda event, k=key: self._hover(k, False))
 
-    # Save current answer
+        self.option_rows[key] = (row, key_label)
+
+    def _select(self, key):
+        self.answer_var.set(key)
+        self.user_answers[self.current_question] = key
+        self._style_options()
+        self._update_next_button()
+        self._show_message(self.nav_message, "")
+
+    def _hover(self, key, inside):
+        if key == self.answer_var.get():
+            return
+        row, _ = self.option_rows[key]
+        row.configure(fg_color=t.RAISED if inside else t.CARD)
+
+    def _style_options(self):
+        selected = self.answer_var.get()
+        for key, (row, key_label) in self.option_rows.items():
+            chosen = key == selected
+            row.configure(
+                fg_color=t.ACCENT_SOFT if chosen else t.CARD,
+                border_color=t.ACCENT if chosen else t.FIELD_BORDER
+            )
+            key_label.configure(text_color=t.ACCENT if chosen else t.MUTED)
+
+    def _update_next_button(self):
+        t.set_primary_enabled(self.next_button, bool(self.answer_var.get()))
+
     def save_current_answer(self):
-
         answer = self.answer_var.get().strip()
-
         if not answer:
             return False
-
         self.user_answers[self.current_question] = answer
-
         return True
 
-    # Go to next question
     def next_question(self):
-
         if not self.save_current_answer():
             return
-
         self.current_question += 1
         self.show_question()
 
-    # Go to previous question
     def previous_question(self):
-
         if self.answer_var.get().strip():
             self.save_current_answer()
-
         self.current_question -= 1
         self.show_question()
 
-    # Submit and calculate quiz result
     def submit_quiz(self):
-
         if not self.save_current_answer():
-            ctk.CTkLabel(
-                self,
-                text="Please select an answer before submitting.",
-                text_color="#D9534F"
-            ).pack(
-                anchor="w",
-                padx=35,
-                pady=5
+            self._show_message(self.nav_message, "Pick an answer first",
+                               side="right", padx=(0, 16), pady=10)
+            return
+
+        missing = [str(index + 1)
+                   for index, answer in enumerate(self.user_answers)
+                   if answer is None]
+        if missing:
+            self._show_message(
+                self.nav_message,
+                f"Answer question {', '.join(missing)} before submitting",
+                side="right", padx=(0, 16), pady=10
             )
             return
 
-        if any(answer is None for answer in self.user_answers):
-            ctk.CTkLabel(
-                self,
-                text="Please answer all questions before submitting.",
-                text_color="#D9534F"
-            ).pack(
-                anchor="w",
-                padx=35,
-                pady=5
-            )
-            return
-
-        result = QuizResult.calculate(
-            self.quiz,
-            self.user_answers
-        )
+        result = QuizResult.calculate(self.quiz, self.user_answers)
 
         try:
-            self.history_manager.save_result(
-                result,
-                self.user_email
-            )
-
+            self.history_manager.save_result(result, self.user_email)
         except Exception:
             self.show_result_content(result, save_error=True)
             return
 
         self.show_result_content(result)
 
-    # Display quiz results
-    def show_result_content(self, result, save_error=False):
+    # Results screen
 
+    def show_result_content(self, result, save_error=False):
         self.clear_interface()
 
-        self.create_heading(
-            "Quiz Results",
-            f'{result["subject"]}  |  {result["topic"]}'
-        )
-
         if save_error:
-            ctk.CTkLabel(
-                self,
-                text="Your result was calculated, but it could not be saved.",
-                text_color="#D9534F",
-                font=ctk.CTkFont(size=13)
-            ).pack(
-                anchor="w",
-                padx=35,
-                pady=5
+            self.create_heading(
+                result["topic"],
+                f"{result['subject']}  ·  This result could not be saved "
+                f"to your history",
+                t.NEGATIVE
+            )
+        else:
+            self.create_heading(
+                result["topic"],
+                f"{result['subject']}  ·  Saved to your quiz history"
             )
 
-        # Result summary card
-        summary = ctk.CTkFrame(
-            self,
-            fg_color="#FFFFFF",
-            corner_radius=12,
-            border_width=1,
-            border_color="#E5E9F0"
-        )
+        # Summary: the score is the moment on this screen
+        summary = t.card(self)
+        summary.pack(fill="x", padx=t.PAGE_X)
 
-        summary.pack(
-            fill="x",
-            padx=35,
-            pady=10
-        )
+        score = ctk.CTkFrame(summary, fg_color="transparent")
+        score.pack(fill="x", padx=t.CARD_PAD, pady=(t.CARD_PAD, 0))
 
-        ctk.CTkLabel(
-            summary,
-            text=f'{result["percentage"]}%',
-            font=ctk.CTkFont(size=38, weight="bold"),
-            text_color="#3157D5"
-        ).pack(pady=(20, 5))
+        percent = round(float(result["percentage"]))
+        t.label(score, f"{percent}%", "hero", t.ACCENT).pack(side="left")
 
-        ctk.CTkLabel(
-            summary,
-            text=result["remark"],
-            font=ctk.CTkFont(size=16, weight="bold"),
-            text_color="#202938"
-        ).pack(pady=(0, 18))
+        words = ctk.CTkFrame(score, fg_color="transparent")
+        words.pack(side="left", padx=(20, 0), pady=(8, 0))
+        t.label(words, result["remark"].rstrip("!."), "body").pack(
+            anchor="w")
+        t.label(
+            words,
+            f"{result['correct']} of {result['total_questions']} correct"
+            f"  ·  {result['wrong']} wrong",
+            "meta", t.MUTED
+        ).pack(anchor="w", pady=(4, 0))
 
-        stats = ctk.CTkFrame(
-            summary,
-            fg_color="transparent"
-        )
+        # One tick per question: ink for right, red for wrong
+        colors = [t.ACCENT if item["status"] == "Correct" else t.NEGATIVE
+                  for item in result["review"]]
+        t.tick_bar(summary, 0, len(colors), height=8,
+                   colors=colors).pack(fill="x", padx=t.CARD_PAD,
+                                       pady=(16, 0))
 
-        stats.pack(
-            fill="x",
-            padx=15,
-            pady=(0, 20)
-        )
-
-        result_stats = [
-            ("Total", result["total_questions"]),
-            ("Correct", result["correct"]),
-            ("Wrong", result["wrong"])
-        ]
-
-        for title, value in result_stats:
-
-            item = ctk.CTkFrame(
-                stats,
-                fg_color="#F4F6FA",
-                corner_radius=8
-            )
-
-            item.pack(
-                side="left",
-                fill="both",
-                expand=True,
-                padx=5
-            )
-
-            ctk.CTkLabel(
-                item,
-                text=title,
-                font=ctk.CTkFont(size=12),
-                text_color="#778195"
-            ).pack(pady=(12, 3))
-
-            ctk.CTkLabel(
-                item,
-                text=str(value),
-                font=ctk.CTkFont(size=22, weight="bold"),
-                text_color="#202938"
-            ).pack(pady=(0, 12))
-
-        # Weak topics
         if result["weak_topics"]:
+            t.divider(summary, padx=t.CARD_PAD, pady=(20, 16))
+            t.label(summary, "Practice next", "small", t.TEXT_2).pack(
+                anchor="w", padx=t.CARD_PAD)
+            t.label(summary, ", ".join(result["weak_topics"]), "body",
+                    wraplength=WRAP, height=0).pack(
+                anchor="w", padx=t.CARD_PAD, pady=(4, t.CARD_PAD))
+        else:
+            ctk.CTkFrame(summary, height=t.CARD_PAD,
+                         fg_color="transparent").pack()
 
-            ctk.CTkLabel(
-                self,
-                text="Topics to Practice",
-                font=ctk.CTkFont(size=18, weight="bold"),
-                text_color="#B54735"
-            ).pack(
-                anchor="w",
-                padx=35,
-                pady=(15, 5)
-            )
+        # Answer review
+        t.label(self, "Answer review", "heading").pack(
+            anchor="w", padx=t.PAGE_X, pady=(32, 12))
 
-            ctk.CTkLabel(
-                self,
-                text=", ".join(result["weak_topics"]),
-                font=ctk.CTkFont(size=13),
-                text_color="#778195"
-            ).pack(
-                anchor="w",
-                padx=35,
-                pady=(0, 10)
-            )
-
-        # Answer review heading
-        ctk.CTkLabel(
-            self,
-            text="Answer Review",
-            font=ctk.CTkFont(size=20, weight="bold"),
-            text_color="#202938"
-        ).pack(
-            anchor="w",
-            padx=35,
-            pady=(20, 10)
-        )
-
-        review_container = ctk.CTkScrollableFrame(
-            self,
-            fg_color="transparent",
-            corner_radius=0,
-            height=350
-        )
-
-        review_container.pack(
-            fill="both",
-            expand=True,
-            padx=25,
-            pady=(0, 10)
-        )
+        review = t.card(self)
+        review.pack(fill="x", padx=t.PAGE_X)
 
         for index, item in enumerate(result["review"], start=1):
+            if index > 1:
+                t.divider(review, padx=t.CARD_PAD)
+            self._review_row(review, index, item)
 
-            card = ctk.CTkFrame(
-                review_container,
-                fg_color="#FFFFFF",
-                corner_radius=10,
-                border_width=1,
-                border_color="#E5E9F0"
-            )
+        # Next step
+        buttons = ctk.CTkFrame(self, fg_color="transparent")
+        buttons.pack(fill="x", padx=t.PAGE_X, pady=(t.GAP, 40))
+        t.primary_button(buttons, "New quiz", self.show_setup,
+                         width=128).pack(side="left")
 
-            card.pack(
-                fill="x",
-                padx=10,
-                pady=7
-            )
+    def _review_row(self, parent, index, item):
+        correct = item["status"] == "Correct"
+        question = self.quiz["questions"][index - 1]
 
-            status_color = (
-                "#238636"
-                if item["status"] == "Correct"
-                else "#D9534F"
-            )
+        row = ctk.CTkFrame(parent, fg_color="transparent")
+        row.pack(fill="x", padx=t.CARD_PAD, pady=20)
+        row.grid_columnconfigure(1, weight=1)
 
-            ctk.CTkLabel(
-                card,
-                text=f'Question {index}  -  {item["status"]}',
-                font=ctk.CTkFont(size=14, weight="bold"),
-                text_color=status_color
-            ).pack(
-                anchor="w",
-                padx=18,
-                pady=(15, 7)
-            )
+        t.label(row, f"{index:>2}", "meta", t.MUTED, width=24).grid(
+            row=0, column=0, sticky="nw", pady=(2, 0))
 
-            ctk.CTkLabel(
-                card,
-                text=item["question"],
-                font=ctk.CTkFont(size=13, weight="bold"),
-                text_color="#202938",
-                wraplength=750,
-                justify="left"
-            ).pack(
-                anchor="w",
-                padx=18,
-                pady=(0, 10)
-            )
+        body = ctk.CTkFrame(row, fg_color="transparent")
+        body.grid(row=0, column=1, sticky="ew", padx=(8, 0))
 
-            question = self.quiz["questions"][index - 1]
+        status = t.label(body, "Correct" if correct else "Wrong", "meta",
+                         t.POSITIVE if correct else t.NEGATIVE)
+        status.pack(anchor="w")
 
-            user_answer = item["user_answer"]
+        t.label(body, item["question"], "body", wraplength=WRAP,
+                height=0).pack(anchor="w", pady=(4, 8))
+
+        user_answer = item["user_answer"]
+        user_text = question["options"].get(user_answer, "Not answered")
+        t.label(
+            body, f"Your answer  {user_answer}. {user_text}", "small",
+            t.TEXT_2 if correct else t.NEGATIVE, wraplength=WRAP, height=0
+        ).pack(anchor="w")
+
+        if not correct:
             correct_answer = item["correct_answer"]
+            correct_text = question["options"].get(correct_answer, "")
+            t.label(
+                body, f"Correct answer  {correct_answer}. {correct_text}",
+                "small", t.POSITIVE, wraplength=WRAP, height=0
+            ).pack(anchor="w", pady=(4, 0))
 
-            user_text = question["options"].get(
-                user_answer,
-                "Not answered"
-            )
-
-            correct_text = question["options"].get(
-                correct_answer,
-                ""
-            )
-
-            ctk.CTkLabel(
-                card,
-                text=f"Your answer: {user_answer}. {user_text}",
-                font=ctk.CTkFont(size=12),
-                text_color=status_color,
-                wraplength=750,
-                justify="left"
-            ).pack(
-                anchor="w",
-                padx=18,
-                pady=3
-            )
-
-            ctk.CTkLabel(
-                card,
-                text=f"Correct answer: {correct_answer}. {correct_text}",
-                font=ctk.CTkFont(size=12),
-                text_color="#238636",
-                wraplength=750,
-                justify="left"
-            ).pack(
-                anchor="w",
-                padx=18,
-                pady=3
-            )
-
-            ctk.CTkLabel(
-                card,
-                text=f'Explanation: {item["explanation"]}',
-                font=ctk.CTkFont(size=12),
-                text_color="#778195",
-                wraplength=750,
-                justify="left"
-            ).pack(
-                anchor="w",
-                padx=18,
-                pady=(8, 15)
-            )
-
-        # Bottom buttons
-        buttons = ctk.CTkFrame(
-            self,
-            fg_color="transparent"
-        )
-
-        buttons.pack(
-            fill="x",
-            padx=35,
-            pady=20
-        )
-
-        ctk.CTkButton(
-            buttons,
-            text="Take Another Quiz",
-            width=160,
-            height=40,
-            command=self.show_setup
-        ).pack(side="left")
-
-        if not save_error:
-
-            ctk.CTkLabel(
-                buttons,
-                text="Result saved to your quiz history.",
-                font=ctk.CTkFont(size=12),
-                text_color="#238636"
-            ).pack(
-                side="right",
-                padx=5
-            )
+        if item.get("explanation"):
+            t.label(body, item["explanation"], "small", t.MUTED,
+                    wraplength=WRAP, height=0).pack(anchor="w",
+                                                    pady=(8, 0))

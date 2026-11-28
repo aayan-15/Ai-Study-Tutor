@@ -1,19 +1,23 @@
-
 import customtkinter as ctk
 
 from Core.subject_manager import SubjectManager
 from Core.topics import TopicManager
 from Core.progress_planner import ProgressPlanner
+from Gui import theme as t
+
+
+def pct(value):
+    """One format for every percentage on the page: 67%, not 66.67%."""
+    try:
+        return f"{round(float(value))}%"
+    except (TypeError, ValueError):
+        return "–"
 
 
 class ProgressFrame(ctk.CTkFrame):
 
     def __init__(self, parent, user):
-        super().__init__(
-            parent,
-            corner_radius=0,
-            fg_color="#F4F6FA"
-        )
+        super().__init__(parent, corner_radius=0, fg_color=t.BG)
 
         self.user = user
         self.user_email = user["email"]
@@ -24,494 +28,236 @@ class ProgressFrame(ctk.CTkFrame):
 
         self.build_interface()
 
-    def create_stat_item(self, parent, title, value):
+    # Shared pieces
 
-        item = ctk.CTkFrame(
-            parent,
-            fg_color="#F4F6FA",
-            corner_radius=8
-        )
+    def _section_title(self, text, top=32):
+        t.label(self, text, "heading").pack(
+            anchor="w", padx=t.PAGE_X, pady=(top, 12))
 
-        item.pack(
-            side="left",
-            fill="both",
-            expand=True,
-            padx=6
-        )
+    def _empty(self, parent, text):
+        t.label(parent, text, "small", t.MUTED).pack(
+            anchor="w", padx=t.CARD_PAD, pady=t.CARD_PAD)
 
-        ctk.CTkLabel(
-            item,
-            text=title,
-            font=ctk.CTkFont(size=12),
-            text_color="#778195"
-        ).pack(pady=(15, 5))
+    def create_stat_item(self, parent, column, title, value, caption=""):
+        """Quiet stat: label, figure, optional caption. No accent."""
+        box = ctk.CTkFrame(parent, fg_color="transparent")
+        box.grid(row=0, column=column, sticky="w")
+        t.label(box, title, "small", t.TEXT_2).pack(anchor="w")
+        t.label(box, str(value), "figure").pack(anchor="w", pady=(8, 0))
+        if caption:
+            t.label(box, caption, "meta", t.MUTED).pack(anchor="w",
+                                                        pady=(8, 0))
 
-        ctk.CTkLabel(
-            item,
-            text=str(value),
-            font=ctk.CTkFont(size=23, weight="bold"),
-            text_color="#3157D5"
-        ).pack(pady=(0, 15))
+    # Page
 
     def build_interface(self):
+        data = self.progress_planner.get_dashboard_progress(self.user_email)
 
-        # Get progress data
-        dashboard_data = self.progress_planner.get_dashboard_progress(
-            self.user_email
-        )
+        progress = data["learning_progress"]
+        quiz_summary = data["quiz_summary"]
+        topic_performance = data["topic_performance"]
+        weak_topics = data["weak_topics"]
+        pending_topics = data["pending_topics"]
 
-        progress = dashboard_data["learning_progress"]
-        quiz_summary = dashboard_data["quiz_summary"]
-        topic_performance = dashboard_data["topic_performance"]
-        weak_topics = dashboard_data["weak_topics"]
-        pending_topics = dashboard_data["pending_topics"]
+        subjects = self.subject_manager.get_subjects(self.user_email)
 
         # Header
-        ctk.CTkLabel(
-            self,
-            text="Learning Progress",
-            font=ctk.CTkFont(size=28, weight="bold"),
-            text_color="#202938"
-        ).pack(anchor="w", padx=35, pady=(30, 5))
+        header = ctk.CTkFrame(self, fg_color="transparent")
+        header.pack(fill="x", padx=t.PAGE_X, pady=(40, t.GAP))
+        t.label(header, "Progress", "title").pack(anchor="w")
+        count = progress["total_subjects"]
+        t.label(
+            header,
+            f"Topics completed and quiz results across your {count} "
+            f"{'subject' if count == 1 else 'subjects'}",
+            "small", t.TEXT_2
+        ).pack(anchor="w", pady=(4, 0))
 
-        ctk.CTkLabel(
-            self,
-            text="Track your learning progress and quiz performance.",
-            font=ctk.CTkFont(size=14),
-            text_color="#778195"
-        ).pack(anchor="w", padx=35, pady=(0, 20))
+        self._build_syllabus(progress, subjects)
+        self._build_quiz_summary(quiz_summary)
+        self._build_topic_table(topic_performance)
+        self._build_attention(weak_topics, pending_topics)
 
-        # Overall learning statistics
-        stats_card = ctk.CTkFrame(
-            self,
-            fg_color="#FFFFFF",
-            corner_radius=12,
-            border_width=1,
-            border_color="#E5E9F0"
-        )
+    # Syllabus: overall figure plus one row per subject (the moment)
 
-        stats_card.pack(
-            fill="x",
-            padx=35,
-            pady=(0, 20)
-        )
+    def _build_syllabus(self, progress, subjects):
+        card = t.card(self)
+        card.pack(fill="x", padx=t.PAGE_X)
 
-        stats_container = ctk.CTkFrame(
-            stats_card,
-            fg_color="transparent"
-        )
+        top = ctk.CTkFrame(card, fg_color="transparent")
+        top.pack(fill="x", padx=t.CARD_PAD, pady=(t.CARD_PAD, 0))
 
-        stats_container.pack(
-            fill="x",
-            padx=20,
-            pady=20
-        )
+        t.label(top, "Syllabus", "heading").pack(anchor="w",
+                                                 pady=(0, 12))
 
-        stats = [
-            ("Total Subjects", progress["total_subjects"]),
-            ("Total Topics", progress["total_topics"]),
-            ("Completed Topics", progress["completed_topics"]),
-            ("Overall Progress", f'{progress["percentage"]}%')
-        ]
+        figures = ctk.CTkFrame(top, fg_color="transparent")
+        figures.pack(fill="x")
+        t.label(figures, pct(progress["percentage"]), "hero",
+                t.ACCENT).pack(side="left")
+        t.label(
+            figures,
+            f"{progress['completed_topics']} of {progress['total_topics']} "
+            f"topics completed",
+            "body", t.TEXT_2
+        ).pack(side="left", padx=(16, 0), pady=(16, 0))
 
-        for title, value in stats:
-            self.create_stat_item(
-                stats_container,
-                title,
-                value
-            )
+        t.tick_bar(top, progress["completed_topics"],
+                   progress["total_topics"]).pack(fill="x", pady=(16, 0))
 
-        # Main scrollable content
-        content_container = ctk.CTkScrollableFrame(
-            self,
-            fg_color="transparent",
-            corner_radius=0
-        )
-
-        content_container.pack(
-            fill="both",
-            expand=True,
-            padx=25,
-            pady=(0, 10)
-        )
-
-        # Subject-wise progress
-        ctk.CTkLabel(
-            content_container,
-            text="Subject-wise Progress",
-            font=ctk.CTkFont(size=20, weight="bold"),
-            text_color="#202938"
-        ).pack(anchor="w", padx=10, pady=(5, 10))
-
-        subjects = self.subject_manager.get_subjects(
-            self.user_email
-        )
+        t.divider(card, padx=t.CARD_PAD, pady=(t.GAP, 0))
 
         if not subjects:
+            self._empty(card, "No subjects yet. Add one on the Subjects "
+                              "page to start tracking")
+            return
 
-            ctk.CTkLabel(
-                content_container,
-                text="No subjects available yet.",
-                font=ctk.CTkFont(size=14),
-                text_color="#8993A5"
-            ).pack(pady=25)
+        rows = ctk.CTkFrame(card, fg_color="transparent")
+        rows.pack(fill="x", padx=t.CARD_PAD, pady=(8, 16))
+        rows.grid_columnconfigure(0, minsize=220)
+        rows.grid_columnconfigure(1, weight=1)
+        rows.grid_columnconfigure((2, 3), minsize=72)
 
-        for subject in subjects:
+        for index, subject in enumerate(subjects):
+            sp = self.topic_manager.get_subject_progress(
+                subject["id"], self.user_email)
+            done, total = sp["completed_topics"], sp["total_topics"]
 
-            subject_progress = self.topic_manager.get_subject_progress(
-                subject["id"],
-                self.user_email
-            )
+            t.label(rows, subject["name"], "body").grid(
+                row=index, column=0, sticky="w", pady=8, padx=(0, 24))
+            bar = t.tick_bar(rows, done, total, height=8)
+            bar.grid(row=index, column=1, sticky="ew")
+            t.label(rows, f"{done} of {total}" if total else "No topics",
+                    "meta", t.MUTED,
+                    anchor="e").grid(row=index, column=2, sticky="e")
+            t.label(rows, pct(sp["percentage"]) if total else "–", "body",
+                    anchor="e").grid(row=index, column=3, sticky="e")
 
-            card = ctk.CTkFrame(
-                content_container,
-                fg_color="#FFFFFF",
-                corner_radius=10,
-                border_width=1,
-                border_color="#E5E9F0"
-            )
+    # Quizzes
 
-            card.pack(
-                fill="x",
-                padx=10,
-                pady=7
-            )
+    def _build_quiz_summary(self, summary):
+        self._section_title("Quizzes")
 
-            ctk.CTkLabel(
-                card,
-                text=subject["name"],
-                font=ctk.CTkFont(size=16, weight="bold"),
-                text_color="#202938"
-            ).pack(
-                anchor="w",
-                padx=18,
-                pady=(15, 5)
-            )
+        card = t.card(self)
+        card.pack(fill="x", padx=t.PAGE_X)
 
-            ctk.CTkLabel(
-                card,
-                text=(
-                    f'{subject_progress["completed_topics"]} of '
-                    f'{subject_progress["total_topics"]} topics completed'
-                ),
-                font=ctk.CTkFont(size=12),
-                text_color="#778195"
-            ).pack(
-                anchor="w",
-                padx=18,
-                pady=(0, 8)
-            )
+        attempts = summary["total_attempts"]
+        if not attempts:
+            self._empty(card, "No quizzes taken yet. Results show up here "
+                              "after your first one")
+            return
 
-            bar = ctk.CTkProgressBar(
-                card,
-                height=10
-            )
+        row = ctk.CTkFrame(card, fg_color="transparent")
+        row.pack(fill="x", padx=t.CARD_PAD, pady=20)
+        row.grid_columnconfigure((0, 1, 2, 3), weight=1, uniform="quiz")
 
-            bar.pack(
-                fill="x",
-                padx=18,
-                pady=(0, 8)
-            )
-
-            bar.set(
-                subject_progress["percentage"] / 100
-            )
-
-            ctk.CTkLabel(
-                card,
-                text=f'{subject_progress["percentage"]}% completed',
-                font=ctk.CTkFont(size=12, weight="bold"),
-                text_color="#3157D5"
-            ).pack(
-                anchor="e",
-                padx=18,
-                pady=(0, 15)
-            )
-
-        # Quiz performance summary
-        ctk.CTkLabel(
-            content_container,
-            text="Quiz Performance",
-            font=ctk.CTkFont(size=20, weight="bold"),
-            text_color="#202938"
-        ).pack(
-            anchor="w",
-            padx=10,
-            pady=(25, 10)
-        )
-
-        quiz_card = ctk.CTkFrame(
-            content_container,
-            fg_color="#FFFFFF",
-            corner_radius=12,
-            border_width=1,
-            border_color="#E5E9F0"
-        )
-
-        quiz_card.pack(
-            fill="x",
-            padx=10,
-            pady=(0, 15)
-        )
-
-        quiz_container = ctk.CTkFrame(
-            quiz_card,
-            fg_color="transparent"
-        )
-
-        quiz_container.pack(
-            fill="x",
-            padx=15,
-            pady=15
-        )
-
-        quiz_stats = [
-            ("Total Attempts", quiz_summary["total_attempts"]),
-            ("Average Score", f'{quiz_summary["average_score"]}%'),
-            ("Best Score", f'{quiz_summary["best_score"]}%'),
-            ("Latest Score", f'{quiz_summary["latest_score"]}%')
+        stats = [
+            ("Attempts", f"{attempts:,}"),
+            ("Average score", pct(summary["average_score"])),
+            ("Best score", pct(summary["best_score"])),
+            ("Latest score", pct(summary["latest_score"])),
         ]
+        for column, (title, value) in enumerate(stats):
+            self.create_stat_item(row, column, title, value)
 
-        for title, value in quiz_stats:
-            self.create_stat_item(
-                quiz_container,
-                title,
-                value
-            )
+    def _build_topic_table(self, topic_performance):
+        self._section_title("By topic", top=24)
 
-        # Topic-wise quiz performance
-        ctk.CTkLabel(
-            content_container,
-            text="Topic-wise Quiz Performance",
-            font=ctk.CTkFont(size=19, weight="bold"),
-            text_color="#202938"
-        ).pack(
-            anchor="w",
-            padx=10,
-            pady=(10, 10)
-        )
+        card = t.card(self)
+        card.pack(fill="x", padx=t.PAGE_X)
 
-        if topic_performance:
+        if not topic_performance:
+            self._empty(card, "Take a quiz to see scores per topic")
+            return
 
-            for item in topic_performance:
+        table = ctk.CTkFrame(card, fg_color="transparent")
+        table.pack(fill="x", padx=t.CARD_PAD, pady=(16, 8))
+        table.grid_columnconfigure(0, weight=1)
+        table.grid_columnconfigure((1, 2, 3), minsize=96)
 
-                card = ctk.CTkFrame(
-                    content_container,
-                    fg_color="#FFFFFF",
-                    corner_radius=10,
-                    border_width=1,
-                    border_color="#E5E9F0"
-                )
+        for column, title in enumerate(
+                ["Topic", "Average", "Latest", "Attempts"]):
+            t.label(table, title, "small_bold", t.MUTED,
+                    anchor="w" if column == 0 else "e").grid(
+                row=0, column=column, sticky="w" if column == 0 else "e",
+                pady=(0, 8))
 
-                card.pack(
-                    fill="x",
-                    padx=10,
-                    pady=6
-                )
+        for index, item in enumerate(topic_performance, start=1):
+            line = tk_line(table)
+            line.grid(row=index * 2 - 1, column=0, columnspan=4,
+                      sticky="ew")
 
-                ctk.CTkLabel(
-                    card,
-                    text=item["topic"],
-                    font=ctk.CTkFont(size=15, weight="bold"),
-                    text_color="#202938"
-                ).pack(
-                    anchor="w",
-                    padx=18,
-                    pady=(12, 3)
-                )
+            name = ctk.CTkFrame(table, fg_color="transparent")
+            name.grid(row=index * 2, column=0, sticky="w", pady=12)
+            t.label(name, item["topic"], "body").pack(anchor="w")
+            t.label(name, item["subject"], "small", t.MUTED).pack(
+                anchor="w", pady=(2, 0))
 
-                ctk.CTkLabel(
-                    card,
-                    text=f'Subject: {item["subject"]}',
-                    font=ctk.CTkFont(size=12),
-                    text_color="#778195"
-                ).pack(
-                    anchor="w",
-                    padx=18,
-                    pady=(0, 5)
-                )
+            values = [pct(item["average_score"]), pct(item["latest_score"]),
+                      f"{item['total_attempts']:,}"]
+            for column, value in enumerate(values, start=1):
+                t.label(table, value, "meta" if column == 3 else "body",
+                        t.TEXT_2 if column == 3 else t.TEXT,
+                        anchor="e").grid(row=index * 2, column=column,
+                                         sticky="e")
 
-                ctk.CTkLabel(
-                    card,
-                    text=(
-                        f'Average: {item["average_score"]}%   |   '
-                        f'Latest: {item["latest_score"]}%   |   '
-                        f'Attempts: {item["total_attempts"]}'
-                    ),
-                    font=ctk.CTkFont(size=12, weight="bold"),
-                    text_color="#3157D5"
-                ).pack(
-                    anchor="w",
-                    padx=18,
-                    pady=(0, 12)
-                )
+    # What to work on next
 
-        else:
+    def _build_attention(self, weak_topics, pending_topics):
+        self._section_title("Work on next")
 
-            ctk.CTkLabel(
-                content_container,
-                text="No quiz attempts yet. Take a quiz to see your performance.",
-                font=ctk.CTkFont(size=13),
-                text_color="#8993A5"
-            ).pack(
-                anchor="w",
-                padx=15,
-                pady=15
-            )
+        row = ctk.CTkFrame(self, fg_color="transparent")
+        row.pack(fill="x", padx=t.PAGE_X, pady=(0, 40))
+        row.grid_columnconfigure((0, 2), weight=1, uniform="next")
+        row.grid_columnconfigure(1, minsize=t.GAP)
 
-        # Weak topics
-        ctk.CTkLabel(
-            content_container,
-            text="Weak Topics",
-            font=ctk.CTkFont(size=19, weight="bold"),
-            text_color="#202938"
-        ).pack(
-            anchor="w",
-            padx=10,
-            pady=(20, 10)
-        )
-
-        weak_card = ctk.CTkFrame(
-            content_container,
-            fg_color="#FFFFFF",
-            corner_radius=12,
-            border_width=1,
-            border_color="#E5E9F0"
-        )
-
-        weak_card.pack(
-            fill="x",
-            padx=10,
-            pady=(0, 15)
-        )
+        # Weak quiz topics
+        weak = t.card(row)
+        weak.grid(row=0, column=0, sticky="nsew")
+        t.label(weak, "Low quiz scores", "small_bold", t.TEXT_2).pack(
+            anchor="w", padx=t.CARD_PAD, pady=(20, 4))
 
         if weak_topics:
-
-            for item in weak_topics:
-
-                topic_item = ctk.CTkFrame(
-                    weak_card,
-                    fg_color="#FFF4F2",
-                    corner_radius=8
-                )
-
-                topic_item.pack(
-                    fill="x",
-                    padx=15,
-                    pady=6
-                )
-
-                ctk.CTkLabel(
-                    topic_item,
-                    text=item["topic"],
-                    font=ctk.CTkFont(size=14, weight="bold"),
-                    text_color="#B54735"
-                ).pack(
-                    anchor="w",
-                    padx=15,
-                    pady=(10, 3)
-                )
-
-                ctk.CTkLabel(
-                    topic_item,
-                    text=(
-                        f'Subject: {item["subject"]}   |   '
-                        f'Average Score: {item["average_score"]}%'
-                    ),
-                    font=ctk.CTkFont(size=12),
-                    text_color="#778195"
-                ).pack(
-                    anchor="w",
-                    padx=15,
-                    pady=(0, 10)
-                )
-
+            for index, item in enumerate(weak_topics):
+                if index:
+                    t.divider(weak, padx=t.CARD_PAD)
+                self._attention_row(weak, item["topic"], item["subject"],
+                                    pct(item["average_score"]), t.NEGATIVE,
+                                    last=index == len(weak_topics) - 1)
         else:
+            self._empty(weak, "No weak topics right now")
 
-            ctk.CTkLabel(
-                weak_card,
-                text="Great work! No weak topics detected.",
-                font=ctk.CTkFont(size=13),
-                text_color="#238636"
-            ).pack(
-                anchor="w",
-                padx=20,
-                pady=18
-            )
-
-        # Pending learning topics
-        ctk.CTkLabel(
-            content_container,
-            text="Topics That Need Attention",
-            font=ctk.CTkFont(size=19, weight="bold"),
-            text_color="#202938"
-        ).pack(
-            anchor="w",
-            padx=10,
-            pady=(20, 10)
-        )
-
-        pending_card = ctk.CTkFrame(
-            content_container,
-            fg_color="#FFFFFF",
-            corner_radius=12,
-            border_width=1,
-            border_color="#E5E9F0"
-        )
-
-        pending_card.pack(
-            fill="x",
-            padx=10,
-            pady=(0, 25)
-        )
+        # Topics not completed yet
+        pending = t.card(row)
+        pending.grid(row=0, column=2, sticky="nsew")
+        t.label(pending, "Not completed yet", "small_bold", t.TEXT_2).pack(
+            anchor="w", padx=t.CARD_PAD, pady=(20, 4))
 
         if pending_topics:
-
-            for topic in pending_topics:
-
-                item = ctk.CTkFrame(
-                    pending_card,
-                    fg_color="#F4F6FA",
-                    corner_radius=8
-                )
-
-                item.pack(
-                    fill="x",
-                    padx=15,
-                    pady=5
-                )
-
-                ctk.CTkLabel(
-                    item,
-                    text=topic["name"],
-                    font=ctk.CTkFont(size=14, weight="bold"),
-                    text_color="#202938"
-                ).pack(
-                    anchor="w",
-                    padx=15,
-                    pady=(10, 2)
-                )
-
-                ctk.CTkLabel(
-                    item,
-                    text=f'Subject: {topic["subject_name"]}',
-                    font=ctk.CTkFont(size=12),
-                    text_color="#778195"
-                ).pack(
-                    anchor="w",
-                    padx=15,
-                    pady=(0, 10)
-                )
-
+            for index, topic in enumerate(pending_topics):
+                if index:
+                    t.divider(pending, padx=t.CARD_PAD)
+                self._attention_row(pending, topic["name"],
+                                    topic["subject_name"],
+                                    last=index == len(pending_topics) - 1)
         else:
+            self._empty(pending, "Every topic is complete")
 
-            ctk.CTkLabel(
-                pending_card,
-                text="Excellent! You have completed all your topics.",
-                font=ctk.CTkFont(size=13),
-                text_color="#238636"
-            ).pack(
-                anchor="w",
-                padx=20,
-                pady=18
-            )
+    def _attention_row(self, parent, title, subject, value=None,
+                       value_color=t.TEXT, last=False):
+        item = ctk.CTkFrame(parent, fg_color="transparent")
+        item.pack(fill="x", padx=t.CARD_PAD, pady=(12, 20 if last else 12))
+        item.grid_columnconfigure(0, weight=1)
+
+        t.label(item, title, "body").grid(row=0, column=0, sticky="w")
+        t.label(item, subject, "small", t.MUTED).grid(
+            row=1, column=0, sticky="w", pady=(2, 0))
+        if value is not None:
+            t.label(item, value, "body", value_color, anchor="e").grid(
+                row=0, column=1, rowspan=2, sticky="e", padx=(16, 0))
+
+
+def tk_line(parent):
+    """1px divider that can be gridded (theme.divider packs)."""
+    import tkinter
+    return tkinter.Frame(parent, height=1, bg=t.HAIRLINE, bd=0,
+                         highlightthickness=0)
