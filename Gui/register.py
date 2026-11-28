@@ -1,13 +1,15 @@
-
 import customtkinter as ctk
-from PIL import Image
-from pathlib import Path
+
+from Gui import theme as t
+
+
+FORM_WIDTH = 340
 
 
 class RegisterFrame(ctk.CTkFrame):
 
     def __init__(self, master, show_login, auth):
-        super().__init__(master)
+        super().__init__(master, fg_color="transparent")
 
         self.show_login = show_login
         self.auth = auth
@@ -15,191 +17,91 @@ class RegisterFrame(ctk.CTkFrame):
         self.password_visible = False
         self.confirm_password_visible = False
 
-        # Image paths
-        image_folder = Path(__file__).resolve().parent.parent / "Images"
-
-        self.eye_image = ctk.CTkImage(
-            light_image=Image.open(image_folder / "eye.png"),
-            dark_image=Image.open(image_folder / "eye.png"),
-            size=(20, 20)
-        )
-
-        self.eyecross_image = ctk.CTkImage(
-            light_image=Image.open(image_folder / "eyecross.png"),
-            dark_image=Image.open(image_folder / "eyecross.png"),
-            size=(20, 20)
-        )
-
         self.create_widgets()
 
     def create_widgets(self):
+        form = ctk.CTkFrame(self, fg_color="transparent", width=FORM_WIDTH)
+        form.place(relx=0.5, rely=0.5, anchor="center")
 
-        title = ctk.CTkLabel(
-            self,
-            text="Create Account",
-            font=ctk.CTkFont(size=32, weight="bold")
-        )
-        title.pack(pady=(55, 10))
+        t.label(form, "Create an account", "title").pack(anchor="w")
+        t.label(form, "Your subjects, quizzes and progress stay on it",
+                "small", t.TEXT_2).pack(anchor="w", pady=(4, 28))
 
-        subtitle = ctk.CTkLabel(
-            self,
-            text="Start your learning journey"
-        )
-        subtitle.pack(pady=(0, 25))
+        self.email = self._field(form, "Email")
+        self.username = self._field(form, "Username", top=12)
+        self.password, self.password_toggle = self._password_field(
+            form, "Password", self.toggle_password, top=12,
+            hint="At least 8 characters")
+        self.confirm_password, self.confirm_toggle = self._password_field(
+            form, "Confirm password", self.toggle_confirm_password, top=12)
 
-        self.email = ctk.CTkEntry(
-            self,
-            width=320,
-            height=40,
-            placeholder_text="Email Address"
-        )
-        self.email.pack(pady=8)
+        self.error_label = t.label(form, "", "small", t.NEGATIVE,
+                                   wraplength=FORM_WIDTH)
+        self.error_label.pack(anchor="w", fill="x", pady=(8, 8))
 
-        self.username = ctk.CTkEntry(
-            self,
-            width=320,
-            height=40,
-            placeholder_text="Username"
-        )
-        self.username.pack(pady=8)
+        self.register_button = t.primary_button(
+            form, "Create account", self.register, width=FORM_WIDTH)
+        self.register_button.pack(anchor="w")
 
-        # Password field
-        password_frame = ctk.CTkFrame(
-            self,
-            width=320,
-            height=40,
-            fg_color="transparent"
-        )
-        password_frame.pack(pady=8)
-        password_frame.pack_propagate(False)
+        switch = ctk.CTkFrame(form, fg_color="transparent")
+        switch.pack(anchor="w", pady=(16, 0))
+        t.label(switch, "Already have an account?", "small",
+                t.TEXT_2).pack(side="left")
+        t.text_button(switch, "Log in", self.show_login,
+                      color=t.ACCENT).pack(side="left", padx=(4, 0))
 
-        self.password = ctk.CTkEntry(
-            password_frame,
-            width=320,
-            height=40,
-            placeholder_text="Password",
-            show="*"
-        )
-        self.password.place(x=0, y=0)
+        for entry in (self.email, self.username, self.password,
+                      self.confirm_password):
+            entry.bind("<Return>", lambda event: self.register())
 
-        self.password_toggle = ctk.CTkButton(
-            password_frame,
-            text="",
-            image=self.eye_image,
-            width=30,
-            height=30,
-            fg_color="transparent",
-            hover=False,
-            command=self.toggle_password
-        )
-        self.password_toggle.place(
-            relx=1.0,
-            rely=0.5,
-            x=-5,
-            anchor="e"
-        )
+    # Fields
 
-        # Confirm password field
-        confirm_frame = ctk.CTkFrame(
-            self,
-            width=320,
-            height=40,
-            fg_color="transparent"
-        )
-        confirm_frame.pack(pady=8)
-        confirm_frame.pack_propagate(False)
+    def _field_label(self, parent, text, top, hint=None):
+        row = ctk.CTkFrame(parent, fg_color="transparent")
+        row.pack(fill="x", pady=(top, 4))
+        t.label(row, text, "small", t.TEXT_2).pack(side="left")
+        if hint:
+            t.label(row, hint, "small", t.MUTED, anchor="e").pack(
+                side="right")
 
-        self.confirm_password = ctk.CTkEntry(
-            confirm_frame,
-            width=320,
-            height=40,
-            placeholder_text="Confirm Password",
-            show="*"
-        )
-        self.confirm_password.place(x=0, y=0)
+    def _field(self, parent, text, top=0):
+        self._field_label(parent, text, top)
+        entry = t.entry(parent, "", width=FORM_WIDTH)
+        entry.pack(anchor="w")
+        return entry
 
-        self.confirm_toggle = ctk.CTkButton(
-            confirm_frame,
-            text="",
-            image=self.eye_image,
-            width=30,
-            height=30,
-            fg_color="transparent",
-            hover=False,
-            command=self.toggle_confirm_password
-        )
-        self.confirm_toggle.place(
-            relx=1.0,
-            rely=0.5,
-            x=-5,
-            anchor="e"
-        )
+    def _password_field(self, parent, text, command, top=0, hint=None):
+        """Password entry with a quiet Show / Hide toggle inside it."""
+        self._field_label(parent, text, top, hint)
+        box = ctk.CTkFrame(parent, fg_color="transparent",
+                           width=FORM_WIDTH, height=40)
+        box.pack(anchor="w")
+        box.pack_propagate(False)
 
-        # Inline error message
-        self.error_label = ctk.CTkLabel(
-            self,
-            text="",
-            text_color="#ff5555",
-            font=ctk.CTkFont(size=13)
-        )
-        self.error_label.pack(pady=5)
+        entry = t.entry(box, "", width=FORM_WIDTH, show="•")
+        entry.place(x=0, y=0)
 
-        ctk.CTkButton(
-            self,
-            text="Register",
-            width=320,
-            height=40,
-            command=self.register
-        ).pack(pady=10)
-
-        ctk.CTkButton(
-            self,
-            text="Already have an account? Login",
-            width=320,
-            height=40,
-            fg_color="transparent",
-            border_width=1,
-            command=self.show_login
-        ).pack()
+        toggle = t.text_button(box, "Show", command, height=28,
+                               fg_color=t.CARD, bg_color=t.CARD)
+        toggle.place(relx=1.0, rely=0.5, x=-6, anchor="e")
+        return entry, toggle
 
     def toggle_password(self):
-
         self.password_visible = not self.password_visible
-
-        if self.password_visible:
-
-            self.password.configure(show="")
-            self.password_toggle.configure(
-                image=self.eyecross_image
-            )
-
-        else:
-
-            self.password.configure(show="*")
-            self.password_toggle.configure(
-                image=self.eye_image
-            )
+        self.password.configure(show="" if self.password_visible else "•")
+        self.password_toggle.configure(
+            text="Hide" if self.password_visible else "Show")
 
     def toggle_confirm_password(self):
-
         self.confirm_password_visible = not self.confirm_password_visible
+        self.confirm_password.configure(
+            show="" if self.confirm_password_visible else "•")
+        self.confirm_toggle.configure(
+            text="Hide" if self.confirm_password_visible else "Show")
 
-        if self.confirm_password_visible:
-
-            self.confirm_password.configure(show="")
-            self.confirm_toggle.configure(
-                image=self.eyecross_image
-            )
-
-        else:
-
-            self.confirm_password.configure(show="*")
-            self.confirm_toggle.configure(
-                image=self.eye_image
-            )
+    # Registering
 
     def register(self):
-
         email = self.email.get().strip()
         username = self.username.get().strip()
         password = self.password.get()
@@ -208,37 +110,44 @@ class RegisterFrame(ctk.CTkFrame):
         self.error_label.configure(text="")
 
         if not email or not username or not password or not confirm_password:
-            self.show_error("Please fill in all required fields.")
+            self.show_error("Fill in every field")
             return
 
         if len(username) < 3:
-            self.show_error("Username must contain at least 3 characters.")
+            self.show_error("Username needs at least 3 characters")
             return
 
         if len(password) < 8:
-            self.show_error("Password must contain at least 8 characters.")
+            self.show_error("Password needs at least 8 characters")
             return
 
         if password != confirm_password:
-            self.show_error("Passwords do not match.")
+            self.show_error("The two passwords don't match")
             return
 
-        success, message = self.auth.register(
-            email,
-            username,
-            password
-        )
+        success, message = self.auth.register(email, username, password)
 
         if success:
-            self.show_error("Account created successfully!", success=True)
-            self.after(1200, self.show_login)
-
+            self.show_error("Account created. Log in to continue",
+                            success=True)
+            t.set_primary_enabled(self.register_button, False)
+            self.after(1200, self._finish_registration)
         else:
             self.show_error(message)
 
-    def show_error(self, message, success=False):
+    def _finish_registration(self):
+        if not self.winfo_exists():
+            return
+        # Leave the form empty for whoever registers next
+        for entry in (self.email, self.username, self.password,
+                      self.confirm_password):
+            entry.delete(0, "end")
+        self.error_label.configure(text="")
+        t.set_primary_enabled(self.register_button, True)
+        self.show_login()
 
+    def show_error(self, message, success=False):
         self.error_label.configure(
             text=message,
-            text_color="#22c55e" if success else "#ff5555"
+            text_color=t.POSITIVE if success else t.NEGATIVE
         )

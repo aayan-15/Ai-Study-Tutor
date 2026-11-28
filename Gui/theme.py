@@ -31,6 +31,19 @@ POSITIVE = "#16A34A"
 NEGATIVE = "#DC2626"
 NEGATIVE_SOFT = "#FEF2F2"
 
+# Dark graphite ramp, for the sidebar and the sign-in panel. Neutral
+# grey, not navy, so it sits next to the light pages and the teal.
+DARK_BG = "#141415"          # sidebar and panel
+DARK_HOVER = "#1C1C1E"       # hover, and raised cards on dark
+DARK_ACTIVE = "#232325"      # active row
+DARK_HAIRLINE = "#2A2A2C"    # light text at about 8%
+DARK_BORDER = "#3A3A3D"      # outlined buttons on dark
+DARK_TEXT = "#EDEDED"
+DARK_TEXT_2 = "#A1A1A6"
+DARK_MUTED = "#85858B"
+ACCENT_ON_DARK = "#2BA394"   # ACCENT is too dark to read on near-black
+TICK_EMPTY_DARK = "#3A3A3D"
+
 # Spacing, all on a 4px grid
 PAGE_X = 32              # page side padding
 GAP = 24                 # between sections and between cards
@@ -47,8 +60,8 @@ MONO_FONTS = ["JetBrains Mono", "Cascadia Mono", "Consolas",
 # CTkLabel pads every label to 28px tall. Fixed heights per style keep
 # two-line rows and cards tight.
 LINE_HEIGHTS = {"title": 36, "heading": 24, "question": 28,
-                "body": 20, "small": 20,
-                "figure": 36, "hero": 56, "meta": 16, "small_bold": 20,}
+                "body": 20, "small": 20, "small_bold": 20,
+                "figure": 36, "hero": 56, "meta": 16}
 
 _fonts = None
 
@@ -151,41 +164,47 @@ def set_primary_enabled(button, enabled):
 def text_button(parent, text, command, color=TEXT_2, **kwargs):
     """Quiet button that reads as a link, for row actions."""
     kwargs.setdefault("height", 32)
+    kwargs.setdefault("fg_color", "transparent")
     return ctk.CTkButton(
         parent, text=text, command=command,
         width=0, corner_radius=CONTROL_RADIUS,
-        fg_color="transparent", hover_color=RAISED,
+        hover_color=RAISED,
         text_color=color, font=fonts()["small"], **kwargs
     )
 
 
-def tick_bar(parent, completed, total, height=12, colors=None):
+def tick_bar(parent, completed, total, height=12, colors=None,
+             dark=False):
     """The app's signature: one tick per topic, filled in ink when done.
 
     Pass `colors`, one per tick, to color each tick yourself, like
-    right and wrong answers in a quiz.
+    right and wrong answers in a quiz. Pass dark=True on a dark surface.
     """
     # A small requested width lets the layout decide how wide it gets,
     # instead of the canvas claiming its default ~380px.
-    canvas = ctk.CTkCanvas(parent, width=120, height=height, bg=CARD,
+    canvas = ctk.CTkCanvas(parent, width=120, height=height,
+                           bg=DARK_HOVER if dark else CARD,
                            highlightthickness=0, bd=0)
     canvas.bind(
         "<Configure>",
         lambda event: _draw_ticks(canvas, event.width, height,
-                                  completed, total, colors)
+                                  completed, total, colors, dark)
     )
     return canvas
 
 
-def _draw_ticks(canvas, width, height, completed, total, colors=None):
+def _draw_ticks(canvas, width, height, completed, total, colors=None,
+                dark=False):
     canvas.delete("all")
+    fill = ACCENT_ON_DARK if dark else ACCENT
+    empty = TICK_EMPTY_DARK if dark else TRACK
 
     # Too many topics to show one by one: fall back to a plain bar.
     if colors is None and (total == 0 or width / total < 6):
         share = completed / total if total else 0
-        canvas.create_rectangle(0, 0, width, height, fill=TRACK, width=0)
+        canvas.create_rectangle(0, 0, width, height, fill=empty, width=0)
         canvas.create_rectangle(0, 0, width * share, height,
-                                fill=ACCENT, width=0)
+                                fill=fill, width=0)
         return
 
     gap = 3 if width / total >= 10 else 2
@@ -195,6 +214,6 @@ def _draw_ticks(canvas, width, height, completed, total, colors=None):
         if colors is not None:
             color = colors[index]
         else:
-            color = ACCENT if index < completed else TRACK
+            color = fill if index < completed else empty
         canvas.create_rectangle(x0, 0, x0 + segment, height,
                                 fill=color, width=0)

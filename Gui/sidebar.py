@@ -22,19 +22,16 @@ ROW_HEIGHT = 36
 SIDE_PAD = 12       # sidebar edge to rows
 ROW_GAP = 2         # between rows
 
-# Dark graphite ramp: neutral grey, not navy, so it sits next to the
-# light grey pages and the teal accent without a color clash.
-SIDEBAR_BG = "#141415"
-ROW_HOVER = "#1C1C1E"
-ROW_ACTIVE = "#232325"
-DARK_HAIRLINE = "#2A2A2C"   # light text at about 8% on the sidebar
-DARK_TEXT = "#EDEDED"
-DARK_TEXT_2 = "#A1A1A6"
-DARK_MUTED = "#85858B"
-# The page accent is too dark to read on near-black, so the logo
-# mark uses a lighter step of the same teal.
-ACCENT_ON_DARK = "#2BA394"
-TICK_EMPTY = "#3A3A3D"
+# Colors live in theme.py, shared with the sign-in panel
+SIDEBAR_BG = t.DARK_BG
+ROW_HOVER = t.DARK_HOVER
+ROW_ACTIVE = t.DARK_ACTIVE
+DARK_HAIRLINE = t.DARK_HAIRLINE
+DARK_TEXT = t.DARK_TEXT
+DARK_TEXT_2 = t.DARK_TEXT_2
+DARK_MUTED = t.DARK_MUTED
+ACCENT_ON_DARK = t.ACCENT_ON_DARK
+TICK_EMPTY = t.TICK_EMPTY_DARK
 
 
 class Sidebar(ctk.CTkFrame):
